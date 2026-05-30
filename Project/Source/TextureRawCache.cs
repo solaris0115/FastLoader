@@ -193,6 +193,7 @@ namespace FastLoader
             loadedCaches = null;
             cacheHitCount = 0;
             cacheMissCount = 0;
+            cacheMissList = null;
 
             string root = CacheRootPath;
             if (!Directory.Exists(root))
