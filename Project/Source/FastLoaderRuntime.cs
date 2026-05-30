@@ -1,0 +1,960 @@
+using System;
+using System.Collections.Generic;
+using System.Collections;
+using System.IO;
+using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
+using System.Xml;
+using RimWorld;
+using Verse;
+
+namespace FastLoader
+{
+    internal enum FastLoaderMode
+    {
+        None,
+        Disabled,
+        CacheHit,
+        CacheMiss
+    }
+
+    internal sealed class CacheEntry
+    {
+        public string PackageId;
+        public string SourceName;
+    }
+
+    internal sealed class CacheData
+    {
+        public string InputHash;
+        public string CreatedUtc;
+        public List<CacheEntry> Entries = new List<CacheEntry>();
+        public XmlDocument ResolvedDefs;
+    }
+
+    internal static class FastLoaderRuntime
+    {
+        public const string CacheFormatVersion = "1";
+        public const string FastLoaderVersion = "0.2.2";
+        private static readonly bool SkipInputHashScan = true;
+
+        private static CacheData loadedCache;
+        private static CacheData lastResolvedXmlSnapshot;
+        private static string inputHash;
+        private static string statusReason;
+        private static int parsedDefCount;
+        private static DateTime loadStartedUtc;
+        private static readonly CacheEntry[] EmptyEntries = new CacheEntry[0];
+        private static readonly FieldInfo XmlInheritanceResolvedNodesField = typeof(XmlInheritance).GetField("resolvedNodes", BindingFlags.NonPublic | BindingFlags.Static);
+
+        public static ModContentPack ModContent;
+        public static FastLoaderSettings Settings;
+        public static FastLoaderMode Mode = FastLoaderMode.None;
+
+        public static bool IsCacheHit
+        {
+            get { return Mode == FastLoaderMode.CacheHit && loadedCache != null; }
+        }
+
+        public static IReadOnlyList<CacheEntry> CacheEntries
+        {
+            get
+            {
+                if (loadedCache != null)
+                {
+                    return loadedCache.Entries;
+                }
+
+                return EmptyEntries;
+            }
+        }
+
+        public static XmlDocument CachedResolvedDefs
+        {
+            get { return loadedCache != null ? loadedCache.ResolvedDefs : null; }
+        }
+
+        private static string RootPath
+        {
+            get { return Path.Combine(GenFilePaths.ConfigFolderPath, "FastLoader"); }
+        }
+
+        private static string CachePath
+        {
+            get { return Path.Combine(RootPath, "Cache"); }
+        }
+
+        private static string ManifestPath
+        {
+            get { return Path.Combine(CachePath, "manifest.xml"); }
+        }
+
+        private static string ResolvedDefsPath
+        {
+            get { return Path.Combine(CachePath, "resolved_defs.xml"); }
+        }
+
+        public static void DeleteAllCaches()
+        {
+            DeleteXmlCache();
+            DeleteResourceCache();
+
+            Log.Message("[FastLoader] All cache files cleared.");
+        }
+
+        public static void DeleteXmlCache()
+        {
+            loadedCache = null;
+            inputHash = null;
+            statusReason = null;
+            parsedDefCount = 0;
+            ClearRebuildRequest();
+
+            TryDeleteFile(ManifestPath);
+            TryDeleteFile(ResolvedDefsPath);
+            TryDeleteFile(ManifestPath + ".tmp");
+            TryDeleteFile(ResolvedDefsPath + ".tmp");
+            TryDeleteEmptyDirectory(CachePath);
+
+            Log.Message("[FastLoader] XML cache files cleared.");
+        }
+
+        public static void DeleteResourceCache()
+        {
+            FastLoaderAssetBundleCache.DeleteCache();
+            Log.Message("[FastLoader] Resource cache files cleared.");
+        }
+
+        public static bool RequestAllCacheBuildFromSettings()
+        {
+            bool xmlBuiltNow = WriteXmlCacheFromCurrentSnapshot();
+            if (!xmlBuiltNow)
+            {
+                RequestCacheRebuildOnNextLoad();
+            }
+
+            FastLoaderAssetBundleCache.BuildFromSettings(FastLoaderHasher.ComputeFastModListHash());
+            return xmlBuiltNow;
+        }
+
+        public static void RequestCacheRebuildOnNextLoad()
+        {
+            DeleteXmlCache();
+
+            if (Settings != null)
+            {
+                Settings.CacheEnabled = true;
+                Settings.ForceRebuildOnNextLoad = true;
+                Settings.Write();
+            }
+
+            Log.Message("[FastLoader] Cache rebuild requested for next load.");
+        }
+
+        public static void BeginLoad(bool hotReload)
+        {
+            Mode = FastLoaderMode.None;
+            loadedCache = null;
+            inputHash = null;
+            statusReason = null;
+            parsedDefCount = 0;
+            loadStartedUtc = DateTime.UtcNow;
+            FastProfile.Begin();
+
+            if (Settings != null && !Settings.CacheEnabled)
+            {
+                Mode = FastLoaderMode.Disabled;
+                statusReason = "disabled by settings; profiling vanilla XML routine";
+                FastProfile.SetStatus("DISABLED", statusReason, null);
+                FastLoaderAssetBundleCache.Begin(null, false);
+                return;
+            }
+
+            if (hotReload)
+            {
+                Mode = FastLoaderMode.Disabled;
+                statusReason = "hotReload";
+                FastProfile.SetStatus("DISABLED", statusReason, null);
+                FastLoaderAssetBundleCache.Begin(null, false);
+                return;
+            }
+
+            try
+            {
+                if (SkipInputHashScan)
+                {
+                    using (FastProfile.Scope("Manifest/input hash scan skipped"))
+                    {
+                        inputHash = FastLoaderHasher.ComputeFastModListHash();
+                    }
+                }
+                else
+                {
+                    using (FastProfile.Scope("Manifest/input hash scan"))
+                    {
+                        inputHash = FastLoaderHasher.ComputeInputHash();
+                    }
+                }
+
+                FastLoaderAssetBundleCache.Begin(inputHash, true);
+
+                if (Settings != null && Settings.ForceRebuildOnNextLoad)
+                {
+                    Mode = FastLoaderMode.CacheMiss;
+                    statusReason = "forced rebuild from settings";
+                    FastProfile.SetStatus("MISS", statusReason, inputHash);
+                    return;
+                }
+
+                string missReason;
+                CacheData cache;
+                if (TryLoadCache(inputHash, out cache, out missReason))
+                {
+                    loadedCache = cache;
+                    lastResolvedXmlSnapshot = cache;
+                    Mode = FastLoaderMode.CacheHit;
+                    statusReason = "manifest match";
+                    FastProfile.SetStatus("HIT", statusReason, inputHash);
+                    return;
+                }
+
+                Mode = FastLoaderMode.CacheMiss;
+                statusReason = missReason;
+                FastProfile.SetStatus("MISS", statusReason, inputHash);
+            }
+            catch (Exception ex)
+            {
+                Mode = FastLoaderMode.CacheMiss;
+                statusReason = "hash/cache check exception: " + ex.GetType().Name;
+                FastProfile.SetStatus("MISS", statusReason, inputHash);
+                FastLoaderAssetBundleCache.Begin(null, false);
+                Log.Warning("[FastLoader] Cache check failed. Falling back to vanilla XML load.\n" + ex);
+            }
+        }
+
+        private static void TryDeleteFile(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !File.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                File.Delete(path);
+            }
+            catch (IOException ex)
+            {
+                Log.Warning("[FastLoader] Could not clear locked cache file: " + path + "\n" + ex.Message);
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                Log.Warning("[FastLoader] Could not clear protected cache file: " + path + "\n" + ex.Message);
+            }
+        }
+
+        private static void ClearRebuildRequest()
+        {
+            if (Settings == null || !Settings.ForceRebuildOnNextLoad)
+            {
+                return;
+            }
+
+            Settings.ForceRebuildOnNextLoad = false;
+            Settings.Write();
+        }
+
+        private static void TryDeleteEmptyDirectory(string path)
+        {
+            if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
+            {
+                return;
+            }
+
+            try
+            {
+                Directory.Delete(path, false);
+            }
+            catch (IOException)
+            {
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        public static void SaveCacheFromResolvedXml(XmlDocument xmlDoc, Dictionary<XmlNode, LoadableXmlAsset> assetLookup)
+        {
+            if (Mode != FastLoaderMode.CacheMiss || string.IsNullOrEmpty(inputHash) || xmlDoc == null || xmlDoc.DocumentElement == null)
+            {
+                return;
+            }
+
+            try
+            {
+                using (FastProfile.Scope("Cache write"))
+                {
+                    using (FastProfile.Scope("Cache write: ensure cache directory"))
+                    {
+                        Directory.CreateDirectory(CachePath);
+                    }
+
+                    CacheData data;
+                    using (FastProfile.Scope("Cache write: build resolved XML data"))
+                    {
+                        data = BuildCacheData(xmlDoc, assetLookup);
+                    }
+
+                    lastResolvedXmlSnapshot = data;
+
+                    using (FastProfile.Scope("Cache write: write resolved_defs.xml"))
+                    {
+                        WriteResolvedDefs(data.ResolvedDefs);
+                    }
+
+                    using (FastProfile.Scope("Cache write: write manifest.xml"))
+                    {
+                        WriteManifest(data);
+                    }
+
+                    ClearRebuildRequest();
+                    statusReason = string.IsNullOrEmpty(statusReason) ? "cache rebuilt" : statusReason + "; cache rebuilt";
+                    FastProfile.SetStatus("MISS", statusReason, inputHash);
+                }
+            }
+            catch (Exception ex)
+            {
+                statusReason = "cache write exception: " + ex.GetType().Name;
+                FastProfile.SetStatus("MISS", statusReason, inputHash);
+                Log.Warning("[FastLoader] Failed to write cache. Current load will continue without cached data for next run.\n" + ex);
+            }
+        }
+
+        public static bool WriteXmlCacheFromCurrentSnapshot()
+        {
+            if (lastResolvedXmlSnapshot == null ||
+                lastResolvedXmlSnapshot.ResolvedDefs == null ||
+                lastResolvedXmlSnapshot.ResolvedDefs.DocumentElement == null ||
+                string.IsNullOrEmpty(lastResolvedXmlSnapshot.InputHash))
+            {
+                Log.Message("[FastLoader] XML cache cannot be built immediately because no resolved XML snapshot is available. It will be rebuilt on next load.");
+                return false;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(CachePath);
+                WriteResolvedDefs(lastResolvedXmlSnapshot.ResolvedDefs);
+                WriteManifest(lastResolvedXmlSnapshot);
+                ClearRebuildRequest();
+                Log.Message("[FastLoader] XML cache written from the current resolved XML snapshot.");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FastLoader] Failed to write XML cache from current snapshot. It will be rebuilt on next load.\n" + ex);
+                return false;
+            }
+        }
+
+        public static void SetParsedDefCount(int count)
+        {
+            parsedDefCount = count;
+        }
+
+        public static void CompleteLoad()
+        {
+            string status;
+            switch (Mode)
+            {
+                case FastLoaderMode.CacheHit:
+                    status = "HIT";
+                    break;
+                case FastLoaderMode.CacheMiss:
+                    status = "MISS";
+                    break;
+                case FastLoaderMode.Disabled:
+                    status = "DISABLED";
+                    break;
+                default:
+                    status = "UNKNOWN";
+                    break;
+            }
+
+            FastProfile.End(status, statusReason, inputHash, parsedDefCount);
+            TimeSpan elapsed = loadStartedUtc == default(DateTime) ? TimeSpan.Zero : DateTime.UtcNow - loadStartedUtc;
+            Log.Message("[FastLoader] XML cache " + status + " in " + FormatSeconds(elapsed) + ". Reason: " + (statusReason ?? string.Empty) + ". Parsed defs: " + parsedDefCount);
+
+            Mode = FastLoaderMode.None;
+            loadedCache = null;
+            inputHash = null;
+            statusReason = null;
+            parsedDefCount = 0;
+        }
+
+        private static string FormatSeconds(TimeSpan elapsed)
+        {
+            return elapsed.TotalSeconds.ToString("0.00") + "s";
+        }
+
+        public static ModContentPack FindMod(string packageId)
+        {
+            if (string.IsNullOrEmpty(packageId))
+            {
+                return null;
+            }
+
+            List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
+            for (int i = 0; i < mods.Count; i++)
+            {
+                ModContentPack mod = mods[i];
+                if (string.Equals(mod.PackageId, packageId, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(mod.PackageIdPlayerFacing, packageId, StringComparison.OrdinalIgnoreCase))
+                {
+                    return mod;
+                }
+            }
+
+            return null;
+        }
+
+        private static bool TryLoadCache(string expectedInputHash, out CacheData cache, out string missReason)
+        {
+            cache = null;
+            missReason = null;
+
+            if (!File.Exists(ManifestPath) || !File.Exists(ResolvedDefsPath))
+            {
+                missReason = "cache files missing";
+                return false;
+            }
+
+            CacheData manifest;
+            using (FastProfile.Scope("Try load XML cache: read manifest"))
+            {
+                manifest = ReadManifest();
+            }
+
+            if (manifest == null)
+            {
+                missReason = "manifest unreadable";
+                return false;
+            }
+
+            if (!string.Equals(manifest.InputHash, expectedInputHash, StringComparison.OrdinalIgnoreCase))
+            {
+                missReason = "mod list changed";
+                return false;
+            }
+
+            XmlDocument document = new XmlDocument();
+            using (FastProfile.Scope("Try load XML cache: read resolved_defs.xml"))
+            {
+                using (XmlReader reader = XmlReader.Create(ResolvedDefsPath, XmlSettings()))
+                {
+                    document.Load(reader);
+                }
+            }
+
+            using (FastProfile.Scope("Try load XML cache: validate cached XML"))
+            {
+                if (document.DocumentElement == null || document.DocumentElement.Name != "Defs")
+                {
+                    missReason = "cached xml root invalid";
+                    return false;
+                }
+
+                int nodeCount = CountElementChildren(document.DocumentElement);
+                if (nodeCount != manifest.Entries.Count)
+                {
+                    missReason = "cached xml metadata count mismatch";
+                    return false;
+                }
+            }
+
+            manifest.ResolvedDefs = document;
+            cache = manifest;
+            return true;
+        }
+
+        private static CacheData BuildCacheData(XmlDocument xmlDoc, Dictionary<XmlNode, LoadableXmlAsset> assetLookup)
+        {
+            CacheData data = new CacheData();
+            data.InputHash = inputHash;
+            data.CreatedUtc = DateTime.UtcNow.ToString("o");
+
+            XmlDocument resolvedDoc = new XmlDocument();
+            XmlElement root = resolvedDoc.CreateElement("Defs");
+            resolvedDoc.AppendChild(root);
+
+            using (FastProfile.Scope("Build resolved XML cache data: resolve/import nodes"))
+            {
+                foreach (XmlNode node in xmlDoc.DocumentElement.ChildNodes)
+                {
+                    if (node.NodeType != XmlNodeType.Element)
+                    {
+                        continue;
+                    }
+
+                    if (!ShouldLoadNode(node))
+                    {
+                        continue;
+                    }
+
+                    LoadableXmlAsset asset = null;
+                    if (assetLookup != null)
+                    {
+                        assetLookup.TryGetValue(node, out asset);
+                    }
+
+                    if (!CanGetResolvedNode(node))
+                    {
+                        throw new InvalidOperationException("Cannot write FastLoader XML cache because an inherited XML node was not resolved: " + DescribeNode(node, asset));
+                    }
+
+                    XmlNode resolved = XmlInheritance.GetResolvedNodeFor(node);
+                    XmlNode imported = ImportResolvedNodePreservingOriginalRootName(resolvedDoc, node, resolved);
+                    RemoveRootInheritanceAttributes(imported);
+                    root.AppendChild(imported);
+
+                    data.Entries.Add(new CacheEntry
+                    {
+                        PackageId = asset != null && asset.mod != null ? asset.mod.PackageId : string.Empty,
+                        SourceName = asset != null ? asset.name : "Unknown"
+                    });
+                }
+            }
+
+            data.ResolvedDefs = resolvedDoc;
+            return data;
+        }
+
+        private static bool ShouldLoadNode(XmlNode node)
+        {
+            if (node.Attributes == null)
+            {
+                return true;
+            }
+
+            XmlAttribute abstractAttribute = node.Attributes["Abstract"];
+            if (abstractAttribute != null && string.Equals(abstractAttribute.Value, "true", StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+
+            XmlAttribute mayRequire = node.Attributes["MayRequire"];
+            if (mayRequire != null && !ModLister.AllModsActiveNoSuffix(mayRequire.Value.ToLower().Split(',')))
+            {
+                return false;
+            }
+
+            XmlAttribute mayRequireAnyOf = node.Attributes["MayRequireAnyOf"];
+            if (mayRequireAnyOf == null)
+            {
+                return true;
+            }
+
+            string[] anyOf = mayRequireAnyOf.Value.ToLower().Split(new[] { ',' }, StringSplitOptions.None);
+            return anyOf.Length == 0 || ModLister.AnyModActiveNoSuffix(anyOf);
+        }
+
+        private static bool CanGetResolvedNode(XmlNode node)
+        {
+            if (node == null || node.Attributes == null || node.Attributes["ParentName"] == null)
+            {
+                return true;
+            }
+
+            IDictionary resolvedNodes = XmlInheritanceResolvedNodesField != null ? XmlInheritanceResolvedNodesField.GetValue(null) as IDictionary : null;
+            return resolvedNodes != null && resolvedNodes.Contains(node);
+        }
+
+        private static string DescribeNode(XmlNode node, LoadableXmlAsset asset)
+        {
+            string source = asset != null ? asset.FullFilePath : "Unknown";
+            string parentName = node != null && node.Attributes != null && node.Attributes["ParentName"] != null ? node.Attributes["ParentName"].Value : string.Empty;
+            return node.Name + " ParentName=" + parentName + " source=" + source;
+        }
+
+        private static XmlNode ImportResolvedNodePreservingOriginalRootName(XmlDocument targetDocument, XmlNode originalNode, XmlNode resolvedNode)
+        {
+            if (resolvedNode == null || originalNode == null || resolvedNode.NodeType != XmlNodeType.Element || string.Equals(resolvedNode.Name, originalNode.Name, StringComparison.Ordinal))
+            {
+                return targetDocument.ImportNode(resolvedNode, true);
+            }
+
+            XmlElement element = targetDocument.CreateElement(originalNode.Name);
+            if (resolvedNode.Attributes != null)
+            {
+                foreach (XmlAttribute attribute in resolvedNode.Attributes)
+                {
+                    XmlAttribute importedAttribute = (XmlAttribute)targetDocument.ImportNode(attribute, true);
+                    element.Attributes.Append(importedAttribute);
+                }
+            }
+
+            foreach (XmlNode child in resolvedNode.ChildNodes)
+            {
+                element.AppendChild(targetDocument.ImportNode(child, true));
+            }
+
+            return element;
+        }
+
+        private static void RemoveRootInheritanceAttributes(XmlNode node)
+        {
+            if (node == null || node.Attributes == null)
+            {
+                return;
+            }
+
+            XmlAttribute parentName = node.Attributes["ParentName"];
+            if (parentName != null)
+            {
+                node.Attributes.Remove(parentName);
+            }
+
+            XmlAttribute inherit = node.Attributes["Inherit"];
+            if (inherit != null)
+            {
+                node.Attributes.Remove(inherit);
+            }
+        }
+
+        private static void WriteResolvedDefs(XmlDocument document)
+        {
+            WriteXmlAtomically(ResolvedDefsPath, document);
+        }
+
+        private static void WriteManifest(CacheData data)
+        {
+            XmlDocument document = new XmlDocument();
+            XmlElement root = document.CreateElement("FastLoaderCache");
+            document.AppendChild(root);
+            AppendElement(document, root, "formatVersion", CacheFormatVersion);
+            AppendElement(document, root, "fastLoaderVersion", FastLoaderVersion);
+            AppendElement(document, root, "gameVersion", VersionControl.CurrentVersionStringWithRev ?? string.Empty);
+            AppendElement(document, root, "inputHash", data.InputHash ?? string.Empty);
+            AppendElement(document, root, "createdUtc", data.CreatedUtc ?? string.Empty);
+
+            XmlElement entries = document.CreateElement("entries");
+            root.AppendChild(entries);
+            for (int i = 0; i < data.Entries.Count; i++)
+            {
+                CacheEntry entry = data.Entries[i];
+                XmlElement element = document.CreateElement("entry");
+                element.SetAttribute("packageId", entry.PackageId ?? string.Empty);
+                element.SetAttribute("sourceName", entry.SourceName ?? "Unknown");
+                entries.AppendChild(element);
+            }
+
+            WriteXmlAtomically(ManifestPath, document);
+        }
+
+        private static CacheData ReadManifest()
+        {
+            XmlDocument document = new XmlDocument();
+            using (XmlReader reader = XmlReader.Create(ManifestPath, XmlSettings()))
+            {
+                document.Load(reader);
+            }
+
+            XmlElement root = document.DocumentElement;
+            if (root == null || root.Name != "FastLoaderCache")
+            {
+                return null;
+            }
+
+            string formatVersion = ChildText(root, "formatVersion");
+            string gameVersion = ChildText(root, "gameVersion");
+            string fastLoaderVersion = ChildText(root, "fastLoaderVersion");
+            if (formatVersion != CacheFormatVersion ||
+                fastLoaderVersion != FastLoaderVersion ||
+                gameVersion != (VersionControl.CurrentVersionStringWithRev ?? string.Empty))
+            {
+                return null;
+            }
+
+            CacheData data = new CacheData();
+            data.InputHash = ChildText(root, "inputHash");
+            data.CreatedUtc = ChildText(root, "createdUtc");
+
+            XmlNode entries = root.SelectSingleNode("entries");
+            if (entries != null)
+            {
+                foreach (XmlNode node in entries.ChildNodes)
+                {
+                    if (node.NodeType != XmlNodeType.Element || node.Name != "entry")
+                    {
+                        continue;
+                    }
+
+                    data.Entries.Add(new CacheEntry
+                    {
+                        PackageId = AttributeText(node, "packageId"),
+                        SourceName = AttributeText(node, "sourceName")
+                    });
+                }
+            }
+
+            return data;
+        }
+
+        private static XmlReaderSettings XmlSettings()
+        {
+            return new XmlReaderSettings
+            {
+                IgnoreComments = true,
+                IgnoreWhitespace = true,
+                CheckCharacters = false,
+                Async = false
+            };
+        }
+
+        private static void WriteXmlAtomically(string path, XmlDocument document)
+        {
+            string tempPath = path + ".tmp";
+            XmlWriterSettings settings = new XmlWriterSettings
+            {
+                Encoding = new UTF8Encoding(false),
+                Indent = false,
+                NewLineHandling = NewLineHandling.None
+            };
+
+            using (XmlWriter writer = XmlWriter.Create(tempPath, settings))
+            {
+                document.Save(writer);
+            }
+
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+
+            File.Move(tempPath, path);
+        }
+
+        private static void AppendElement(XmlDocument document, XmlElement parent, string name, string value)
+        {
+            XmlElement child = document.CreateElement(name);
+            child.InnerText = value ?? string.Empty;
+            parent.AppendChild(child);
+        }
+
+        private static string ChildText(XmlElement parent, string name)
+        {
+            XmlNode node = parent.SelectSingleNode(name);
+            return node != null ? node.InnerText : string.Empty;
+        }
+
+        private static string AttributeText(XmlNode node, string name)
+        {
+            if (node.Attributes == null)
+            {
+                return string.Empty;
+            }
+
+            XmlAttribute attribute = node.Attributes[name];
+            return attribute != null ? attribute.Value : string.Empty;
+        }
+
+        private static int CountElementChildren(XmlNode node)
+        {
+            int count = 0;
+            foreach (XmlNode child in node.ChildNodes)
+            {
+                if (child.NodeType == XmlNodeType.Element)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+    }
+
+    internal static class FastLoaderHasher
+    {
+        public static string ComputeFastModListHash()
+        {
+            using (SHA256 sha = SHA256.Create())
+            {
+                using (FastProfile.Scope("Input hash: fast mod list only"))
+                {
+                    AppendString(sha, "FastLoaderManualCacheV1");
+                    AppendString(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
+
+                    List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
+                    AppendString(sha, "modCount=" + mods.Count);
+                    for (int i = 0; i < mods.Count; i++)
+                    {
+                        ModContentPack mod = mods[i];
+                        AppendString(sha, i.ToString());
+                        AppendString(sha, mod.PackageId ?? string.Empty);
+                        AppendString(sha, mod.PackageIdPlayerFacing ?? string.Empty);
+                        AppendString(sha, mod.Name ?? string.Empty);
+                        AppendString(sha, mod.RootDir ?? string.Empty);
+                    }
+                }
+
+                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                return BytesToHex(sha.Hash);
+            }
+        }
+
+        public static string ComputeInputHash()
+        {
+            using (SHA256 sha = SHA256.Create())
+            {
+                using (FastProfile.Scope("Input hash: header"))
+                {
+                    AppendString(sha, "FastLoaderInputHashV2");
+                    AppendString(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
+                }
+
+                List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
+                AppendString(sha, "modCount=" + mods.Count);
+                for (int i = 0; i < mods.Count; i++)
+                {
+                    ModContentPack mod = mods[i];
+                    string modLabel = DescribeModForProfile(i, mod);
+                    using (FastProfile.Scope("Input hash: mod metadata: " + modLabel))
+                    {
+                        AppendString(sha, "mod");
+                        AppendString(sha, i.ToString());
+                        AppendString(sha, mod.PackageId ?? string.Empty);
+                        AppendString(sha, mod.PackageIdPlayerFacing ?? string.Empty);
+                        AppendString(sha, mod.Name ?? string.Empty);
+                        AppendString(sha, mod.RootDir ?? string.Empty);
+                        AppendString(sha, mod.IsOfficialMod.ToString());
+                        AppendString(sha, mod.IsCoreMod.ToString());
+
+                        if (mod.foldersToLoadDescendingOrder != null)
+                        {
+                            AppendString(sha, "loadFolders=" + mod.foldersToLoadDescendingOrder.Count);
+                            for (int f = 0; f < mod.foldersToLoadDescendingOrder.Count; f++)
+                            {
+                                AppendString(sha, mod.foldersToLoadDescendingOrder[f] ?? string.Empty);
+                            }
+                        }
+                    }
+
+                    using (FastProfile.Scope("Input hash: hash files: " + modLabel))
+                    {
+                        HashDirectory(sha, mod.RootDir);
+                    }
+                }
+
+                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                return BytesToHex(sha.Hash);
+            }
+        }
+
+        private static void HashDirectory(HashAlgorithm sha, string rootPath)
+        {
+            if (string.IsNullOrEmpty(rootPath) || !Directory.Exists(rootPath))
+            {
+                AppendString(sha, "missing-root");
+                AppendString(sha, rootPath ?? string.Empty);
+                return;
+            }
+
+            List<string> files = new List<string>();
+            using (FastProfile.Scope("Hash directory: enumerate files"))
+            {
+                try
+                {
+                    files.AddRange(Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories));
+                }
+                catch (Exception ex)
+                {
+                    AppendString(sha, "enumerate-error");
+                    AppendString(sha, rootPath);
+                    AppendString(sha, ex.GetType().FullName);
+                    return;
+                }
+            }
+
+            files.Sort(StringComparer.OrdinalIgnoreCase);
+            AppendString(sha, "fileCount=" + files.Count);
+
+            using (FastProfile.Scope("Hash directory: read file metadata"))
+            {
+                for (int i = 0; i < files.Count; i++)
+                {
+                    string file = files[i];
+                    string relative = MakeRelativePath(rootPath, file);
+                    AppendString(sha, relative);
+
+                    try
+                    {
+                        FileInfo info = new FileInfo(file);
+                        AppendString(sha, info.Length.ToString());
+                        AppendString(sha, info.LastWriteTimeUtc.Ticks.ToString());
+                    }
+                    catch (Exception ex)
+                    {
+                        AppendString(sha, "file-metadata-error");
+                        AppendString(sha, file);
+                        AppendString(sha, ex.GetType().FullName);
+                    }
+                }
+            }
+        }
+
+        private static string DescribeModForProfile(int index, ModContentPack mod)
+        {
+            if (mod == null)
+            {
+                return index + " (null)";
+            }
+
+            string id = mod.PackageIdPlayerFacing;
+            if (string.IsNullOrEmpty(id))
+            {
+                id = mod.PackageId;
+            }
+
+            string name = mod.Name;
+            if (string.IsNullOrEmpty(name))
+            {
+                name = "(unnamed)";
+            }
+
+            return index + " " + (id ?? string.Empty) + " / " + name;
+        }
+
+        private static string MakeRelativePath(string rootPath, string filePath)
+        {
+            if (filePath.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return filePath.Substring(rootPath.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            }
+
+            return filePath;
+        }
+
+        private static void AppendString(HashAlgorithm sha, string value)
+        {
+            byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
+            if (bytes.Length > 0)
+            {
+                sha.TransformBlock(bytes, 0, bytes.Length, null, 0);
+            }
+
+            sha.TransformBlock(new byte[] { 0 }, 0, 1, null, 0);
+        }
+
+        private static string BytesToHex(byte[] bytes)
+        {
+            StringBuilder builder = new StringBuilder(bytes.Length * 2);
+            for (int i = 0; i < bytes.Length; i++)
+            {
+                builder.Append(bytes[i].ToString("x2"));
+            }
+
+            return builder.ToString();
+        }
+    }
+}
