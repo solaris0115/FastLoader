@@ -76,13 +76,21 @@ namespace FastLoader
 
             listing.Gap(8f);
             Rect buildRow = listing.GetRect(30f);
-            float buildButtonWidth = Mathf.Min(200f, buildRow.width * 0.5f);
-            Rect buildRect = new Rect(buildRow.x, buildRow.y, buildButtonWidth, buildRow.height);
-            if (Widgets.ButtonText(buildRect, "Build texture cache now"))
+            float buildButtonWidth = Mathf.Min(200f, (buildRow.width - 8f) * 0.5f);
+            Rect buildTexRect = new Rect(buildRow.x, buildRow.y, buildButtonWidth, buildRow.height);
+            Rect buildXmlRect = new Rect(buildTexRect.xMax + 8f, buildRow.y, buildButtonWidth, buildRow.height);
+            if (Widgets.ButtonText(buildTexRect, "Build texture cache now"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                     "Build texture cache from currently loaded textures in memory?\nThis may take a few seconds.",
                     BuildTextureCacheFromMemory,
+                    true));
+            }
+            if (Widgets.ButtonText(buildXmlRect, "Build XML cache now"))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "Build XML cache from current resolved defs in memory?",
+                    BuildXmlCacheFromMemory,
                     true));
             }
 
@@ -179,6 +187,27 @@ namespace FastLoader
             {
                 Log.Error("[FastLoader] Failed to build texture cache from memory.\n" + ex);
                 Messages.Message("Failed to build texture cache. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+
+        private static void BuildXmlCacheFromMemory()
+        {
+            try
+            {
+                bool success = FastLoaderRuntime.WriteXmlCacheFromCurrentSnapshot();
+                if (success)
+                {
+                    Messages.Message("XML cache built from current resolved defs.", MessageTypeDefOf.TaskCompletion, false);
+                }
+                else
+                {
+                    Messages.Message("XML cache not available yet. Load the game first, then try again.", MessageTypeDefOf.RejectInput, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to build XML cache from memory.\n" + ex);
+                Messages.Message("Failed to build XML cache. See log for details.", MessageTypeDefOf.RejectInput, false);
             }
         }
 
