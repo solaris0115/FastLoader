@@ -15,6 +15,7 @@ namespace FastLoader
         private static Dictionary<string, List<RawTextureEntry>> loadedCaches;
         private static int cacheHitCount;
         private static int cacheMissCount;
+        private static List<string> cacheMissList;
 
         private static string CacheRootPath
         {
@@ -83,6 +84,11 @@ namespace FastLoader
             }
 
             cacheMissCount++;
+            if (cacheMissList == null)
+            {
+                cacheMissList = new List<string>();
+            }
+            cacheMissList.Add(packageId);
             return false;
         }
 
@@ -226,6 +232,7 @@ namespace FastLoader
             loadedCaches = null;
             cacheHitCount = 0;
             cacheMissCount = 0;
+            cacheMissList = null;
         }
 
         public static string GetStatusSummary()
@@ -251,6 +258,11 @@ namespace FastLoader
             {
                 return "unable to read cache status";
             }
+        }
+
+        public static List<string> GetCacheMissList()
+        {
+            return cacheMissList;
         }
 
         public static bool IsTextureExtension(string extension)
