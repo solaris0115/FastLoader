@@ -180,7 +180,6 @@ namespace FastLoader
         private static readonly FieldInfo StringsField = AccessTools.Field(typeof(ModContentPack), "strings");
         private static readonly FieldInfo AllAssetNamesInBundleCachedField = AccessTools.Field(typeof(ModContentPack), "allAssetNamesInBundleCached");
         private static readonly FieldInfo AllAssetNamesInBundleCachedTrieField = AccessTools.Field(typeof(ModContentPack), "allAssetNamesInBundleCachedTrie");
-        private static readonly FieldInfo HolderModField = AccessTools.Field(typeof(ModContentHolder<Texture2D>), "mod");
         private static readonly FieldInfo ContentListTrieField = AccessTools.Field(typeof(ModContentHolder<Texture2D>), "contentListTrie");
         private static MethodInfo trieAddMethod;
 
@@ -196,19 +195,13 @@ namespace FastLoader
                 return true;
             }
 
-            IEnumerable<Pair<string, LoadedContentItem<Texture2D>>> enumerableItems;
-            if (!FastLoaderAssetBundleCache.TryGetTextureItemsForMod(__instance, out enumerableItems))
+            if (__instance.IsCoreMod || __instance.IsOfficialMod)
             {
                 return true;
             }
 
-            List<Pair<string, LoadedContentItem<Texture2D>>> cachedTextureItems;
-            using (FastProfile.Scope("Texture cache: enumerate cached Texture2D LoadAsset"))
-            {
-                cachedTextureItems = new List<Pair<string, LoadedContentItem<Texture2D>>>(enumerableItems);
-            }
-
-            if (cachedTextureItems.Count == 0)
+            List<RawTextureEntry> entries;
+            if (!TextureRawCache.TryLoadCacheForMod(__instance, out entries))
             {
                 return true;
             }
@@ -221,7 +214,7 @@ namespace FastLoader
                 return true;
             }
 
-            ReloadContentWithCachedTextures(__instance, audioClips, textures, strings, cachedTextureItems, hotReload);
+            ReloadContentWithCachedTextures(__instance, audioClips, textures, strings, entries, hotReload);
             return false;
         }
 
@@ -230,7 +223,7 @@ namespace FastLoader
             ModContentHolder<AudioClip> audioClips,
             ModContentHolder<Texture2D> textures,
             ModContentHolder<string> strings,
-            List<Pair<string, LoadedContentItem<Texture2D>>> cachedTextureItems,
+            List<RawTextureEntry> cachedEntries,
             bool hotReload)
         {
             DeepProfiler.Start("Reload audio clips");
@@ -249,9 +242,9 @@ namespace FastLoader
             DeepProfiler.Start("Reload textures");
             try
             {
-                using (FastProfile.Scope("ReloadContentInt: inject cached textures"))
+                using (FastProfile.Scope("ReloadContentInt: inject raw cached textures"))
                 {
-                    LoadCachedTexturesIntoHolder(textures, cachedTextureItems, hotReload);
+                    LoadRawCachedTexturesIntoHolder(textures, cachedEntries, hotReload);
                 }
             }
             finally
@@ -296,49 +289,33 @@ namespace FastLoader
             }
         }
 
-        private static void LoadCachedTexturesIntoHolder(ModContentHolder<Texture2D> holder, IEnumerable<Pair<string, LoadedContentItem<Texture2D>>> items, bool hotReload)
+        private static void LoadRawCachedTexturesIntoHolder(ModContentHolder<Texture2D> holder, List<RawTextureEntry> entries, bool hotReload)
         {
-            foreach (Pair<string, LoadedContentItem<Texture2D>> item in items)
+            for (int i = 0; i < entries.Count; i++)
             {
-                string internalPath = NormalizeInternalPath(item.First);
-                if (holder.contentList.ContainsKey(internalPath))
+                RawTextureEntry entry = entries[i];
+                if (holder.contentList.ContainsKey(entry.InternalPath))
                 {
                     if (!hotReload)
                     {
-                        Log.Warning("Tried to load duplicate " + typeof(Texture2D) + " with path: " + item.Second.internalFile + " and internal path: " + internalPath);
+                        Log.Warning("[FastLoader] Duplicate texture path from raw cache: " + entry.InternalPath);
                     }
-
                     continue;
                 }
 
-                holder.contentList.Add(internalPath, item.Second.contentItem);
-                AddToTrie(holder, internalPath);
-                if (item.Second.extraDisposable != null)
-                {
-                    holder.extraDisposables.Add(item.Second.extraDisposable);
-                }
+                Texture2D texture = new Texture2D(entry.Width, entry.Height, (TextureFormat)entry.TextureFormat, entry.MipmapCount > 1);
+                texture.LoadRawTextureData(entry.RawData);
+                texture.name = entry.Name;
+                texture.filterMode = (FilterMode)entry.FilterMode;
+                texture.anisoLevel = entry.AnisoLevel;
+                texture.Apply(false, true);
+
+                holder.contentList.Add(entry.InternalPath, texture);
+                AddToTrie(holder, entry.InternalPath);
             }
         }
 
-        private static string NormalizeInternalPath(string path)
-        {
-            string result = (path ?? string.Empty).Replace('\\', '/');
-            string contentPath = GenFilePaths.ContentPath<Texture2D>();
-            if (result.StartsWith(contentPath))
-            {
-                result = result.Substring(contentPath.Length);
-            }
-
-            string extension = Path.GetExtension(result);
-            if (!string.IsNullOrEmpty(extension) && result.EndsWith(extension))
-            {
-                result = result.Substring(0, result.Length - extension.Length);
-            }
-
-            return result;
-        }
-
-        private static void AddToTrie(ModContentHolder<Texture2D> holder, string path)
+        internal static void AddToTrie(ModContentHolder<Texture2D> holder, string path)
         {
             object trie = ContentListTrieField != null ? ContentListTrieField.GetValue(holder) : null;
             if (trie == null)
@@ -388,7 +365,7 @@ namespace FastLoader
     {
         private static void Postfix()
         {
-            FastLoaderAssetBundleCache.ClearLoadedBundle();
+            TextureRawCache.OnClearDestroy();
         }
     }
 

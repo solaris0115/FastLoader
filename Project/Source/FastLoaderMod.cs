@@ -41,26 +41,17 @@ namespace FastLoader
 
             listing.Gap(8f);
             Rect buttonRow = listing.GetRect(30f);
-            const float gap = 2f;
-            float buttonWidth = Mathf.Min(150f, (buttonRow.width - gap * 3f) / 4f);
-            Rect resourceClearRect = new Rect(buttonRow.xMax - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
-            Rect xmlClearRect = new Rect(resourceClearRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
-            Rect prepareRect = new Rect(xmlClearRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
-            Rect buildRect = new Rect(prepareRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
+            const float gap = 4f;
+            float buttonWidth = Mathf.Min(180f, (buttonRow.width - gap * 2f) / 3f);
+            Rect texClearRect = new Rect(buttonRow.xMax - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
+            Rect xmlClearRect = new Rect(texClearRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
+            Rect resetAllRect = new Rect(xmlClearRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
 
-            if (Widgets.ButtonText(buildRect, "Build all cache"))
+            if (Widgets.ButtonText(resetAllRect, "Reset all caches"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Build all FastLoader caches? XML cache will be written now when a resolved XML snapshot is available. Otherwise it will be rebuilt on the next game load. Texture resource cache build will start now.",
-                    BuildAllCacheFromSettings,
-                    true));
-            }
-
-            if (Widgets.ButtonText(prepareRect, "Prepare resource build"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Prepare FastLoader texture resource cache build files? Unity will not be started. Run the generated command file outside RimWorld to build the cache.",
-                    PrepareResourceBuildFromSettings,
+                    "Clear all FastLoader caches (XML + texture)? They will be automatically rebuilt on next load.",
+                    ResetAllCachesFromSettings,
                     true));
             }
 
@@ -72,13 +63,17 @@ namespace FastLoader
                     true));
             }
 
-            if (Widgets.ButtonText(resourceClearRect, "Reset resource cache"))
+            if (Widgets.ButtonText(texClearRect, "Reset texture cache"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear FastLoader texture/resource cache files?",
+                    "Clear FastLoader texture cache files? They will be rebuilt automatically on next load.",
                     DeleteResourceCacheFromSettings,
                     true));
             }
+
+            listing.Gap(12f);
+            listing.Label("Texture cache: " + TextureRawCache.GetStatusSummary());
+
             listing.End();
         }
 
@@ -110,41 +105,17 @@ namespace FastLoader
             }
         }
 
-        private static void BuildAllCacheFromSettings()
+        private static void ResetAllCachesFromSettings()
         {
             try
             {
-                bool xmlBuiltNow = FastLoaderRuntime.RequestAllCacheBuildFromSettings();
-                Messages.Message(xmlBuiltNow
-                    ? "FastLoader cache build requested. XML cache was written now."
-                    : "FastLoader cache build requested. XML cache will be regenerated on next game load.",
-                    MessageTypeDefOf.TaskCompletion,
-                    false);
+                FastLoaderRuntime.DeleteAllCaches();
+                Messages.Message("All FastLoader caches cleared. They will be rebuilt on next load.", MessageTypeDefOf.TaskCompletion, false);
             }
             catch (Exception ex)
             {
-                Log.Error("[FastLoader] Failed to request cache build.\n" + ex);
-                Messages.Message("Failed to request FastLoader cache build. See log for details.", MessageTypeDefOf.RejectInput, false);
-            }
-        }
-
-        private static void PrepareResourceBuildFromSettings()
-        {
-            try
-            {
-                string commandPath = FastLoaderAssetBundleCache.PrepareExternalBuildFromSettings(FastLoaderHasher.ComputeFastModListHash());
-                if (string.IsNullOrEmpty(commandPath))
-                {
-                    Messages.Message("Failed to prepare FastLoader resource build. See log for details.", MessageTypeDefOf.RejectInput, false);
-                    return;
-                }
-
-                Messages.Message("FastLoader resource build command prepared: " + commandPath, MessageTypeDefOf.TaskCompletion, false);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("[FastLoader] Failed to prepare resource cache build.\n" + ex);
-                Messages.Message("Failed to prepare FastLoader resource build. See log for details.", MessageTypeDefOf.RejectInput, false);
+                Log.Error("[FastLoader] Failed to clear all caches.\n" + ex);
+                Messages.Message("Failed to clear FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
             }
         }
 

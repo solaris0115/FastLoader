@@ -122,7 +122,7 @@ namespace FastLoader
 
         public static void DeleteResourceCache()
         {
-            FastLoaderAssetBundleCache.DeleteCache();
+            TextureRawCache.DeleteAll();
             Log.Message("[FastLoader] Resource cache files cleared.");
         }
 
@@ -134,7 +134,7 @@ namespace FastLoader
                 RequestCacheRebuildOnNextLoad();
             }
 
-            FastLoaderAssetBundleCache.BuildFromSettings(FastLoaderHasher.ComputeFastModListHash());
+            TextureRawCache.DeleteAll();
             return xmlBuiltNow;
         }
 
@@ -167,7 +167,6 @@ namespace FastLoader
                 Mode = FastLoaderMode.Disabled;
                 statusReason = "disabled by settings; profiling vanilla XML routine";
                 FastProfile.SetStatus("DISABLED", statusReason, null);
-                FastLoaderAssetBundleCache.Begin(null, false);
                 return;
             }
 
@@ -176,7 +175,6 @@ namespace FastLoader
                 Mode = FastLoaderMode.Disabled;
                 statusReason = "hotReload";
                 FastProfile.SetStatus("DISABLED", statusReason, null);
-                FastLoaderAssetBundleCache.Begin(null, false);
                 return;
             }
 
@@ -196,8 +194,6 @@ namespace FastLoader
                         inputHash = FastLoaderHasher.ComputeInputHash();
                     }
                 }
-
-                FastLoaderAssetBundleCache.Begin(inputHash, true);
 
                 if (Settings != null && Settings.ForceRebuildOnNextLoad)
                 {
@@ -228,7 +224,6 @@ namespace FastLoader
                 Mode = FastLoaderMode.CacheMiss;
                 statusReason = "hash/cache check exception: " + ex.GetType().Name;
                 FastProfile.SetStatus("MISS", statusReason, inputHash);
-                FastLoaderAssetBundleCache.Begin(null, false);
                 Log.Warning("[FastLoader] Cache check failed. Falling back to vanilla XML load.\n" + ex);
             }
         }
