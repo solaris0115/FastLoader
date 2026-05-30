@@ -281,48 +281,24 @@ namespace FastLoader
 
         public static void SaveCacheFromResolvedXml(XmlDocument xmlDoc, Dictionary<XmlNode, LoadableXmlAsset> assetLookup)
         {
-            if (Mode != FastLoaderMode.CacheMiss || string.IsNullOrEmpty(inputHash) || xmlDoc == null || xmlDoc.DocumentElement == null)
+            if (string.IsNullOrEmpty(inputHash) || xmlDoc == null || xmlDoc.DocumentElement == null)
             {
                 return;
             }
 
             try
             {
-                using (FastProfile.Scope("Cache write"))
+                CacheData data;
+                using (FastProfile.Scope("Capture resolved XML snapshot"))
                 {
-                    using (FastProfile.Scope("Cache write: ensure cache directory"))
-                    {
-                        Directory.CreateDirectory(CachePath);
-                    }
-
-                    CacheData data;
-                    using (FastProfile.Scope("Cache write: build resolved XML data"))
-                    {
-                        data = BuildCacheData(xmlDoc, assetLookup);
-                    }
-
-                    lastResolvedXmlSnapshot = data;
-
-                    using (FastProfile.Scope("Cache write: write resolved_defs.xml"))
-                    {
-                        WriteResolvedDefs(data.ResolvedDefs);
-                    }
-
-                    using (FastProfile.Scope("Cache write: write manifest.xml"))
-                    {
-                        WriteManifest(data);
-                    }
-
-                    ClearRebuildRequest();
-                    statusReason = string.IsNullOrEmpty(statusReason) ? "cache rebuilt" : statusReason + "; cache rebuilt";
-                    FastProfile.SetStatus("MISS", statusReason, inputHash);
+                    data = BuildCacheData(xmlDoc, assetLookup);
                 }
+
+                lastResolvedXmlSnapshot = data;
             }
             catch (Exception ex)
             {
-                statusReason = "cache write exception: " + ex.GetType().Name;
-                FastProfile.SetStatus("MISS", statusReason, inputHash);
-                Log.Warning("[FastLoader] Failed to write cache. Current load will continue without cached data for next run.\n" + ex);
+                Log.Warning("[FastLoader] Failed to capture resolved XML snapshot.\n" + ex);
             }
         }
 
