@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
@@ -9,185 +8,177 @@ using Verse;
 namespace FastLoader
 {
     /// <summary>
-    /// Cache miss 시 바닐라 텍스처 로드 결과를 캡처하여 .texcache 파일로 저장하는 패치.
+    /// Cache miss 시 바닐라 로딩 완료 후 GPU readback으로 텍스처를 캡처하여 .texcache로 저장.
     /// 
-    /// 전략: ModContentHolder<Texture2D>.ReloadAll을 Prefix+Postfix로 감싼다.
-    /// - Prefix: 캡처 모드 활성화 (현재 모드 기록)
-    /// - 바닐라 LoadTexture 실행 중: Texture2D.Apply를 가로채서 raw data 캡처
-    /// - Postfix: 캡처된 데이터를 .texcache로 flush
-    /// 
-    /// Texture2D.Apply(bool, bool) Prefix에서 makeNoLongerReadable=true 호출 직전
-    /// GetRawTextureData()로 바이트를 복사한다.
+    /// ReloadContentInt의 Postfix에서 로드된 Texture2D를 GPU에서 읽어온다.
+    /// ModContentHolder&lt;T&gt;.ReloadAll을 패치하지 않으므로
+    /// AudioClip/string 등 다른 타입의 로딩 경로에 영향을 주지 않는다.
     /// </summary>
     [HarmonyPatch]
-    internal static class Patch_Texture2DApply_Capture
+    internal static class Patch_ReloadContentInt_TextureCapture
     {
         [ThreadStatic]
-        private static bool captureActive;
-
-        [ThreadStatic]
-        private static List<RawTextureEntry> capturedEntries;
-
-        [ThreadStatic]
-        private static ModContentPack currentCaptureMod;
-
-        [ThreadStatic]
-        private static string currentTextureInternalPath;
+        private static ModContentPack pendingCaptureMod;
 
         private static readonly FieldInfo TexturesField = AccessTools.Field(typeof(ModContentPack), "textures");
 
         private static MethodBase TargetMethod()
         {
-            return AccessTools.Method(typeof(Texture2D), "Apply", new[] { typeof(bool), typeof(bool) });
+            return AccessTools.Method(typeof(ModContentPack), "ReloadContentInt");
         }
 
-        private static void Prefix(Texture2D __instance, bool updateMipmaps, bool makeNoLongerReadable)
+        private static void Prefix(ModContentPack __instance, bool hotReload)
         {
-            if (!captureActive || !makeNoLongerReadable)
+            pendingCaptureMod = null;
+
+            if (hotReload)
+            {
+                return;
+            }
+
+            if (__instance == null || __instance.IsCoreMod || __instance.IsOfficialMod)
+            {
+                return;
+            }
+
+            if (FastLoaderRuntime.Settings != null && !FastLoaderRuntime.Settings.CacheEnabled)
+            {
+                return;
+            }
+
+            pendingCaptureMod = __instance;
+        }
+
+        private static void Postfix(ModContentPack __instance, bool hotReload)
+        {
+            ModContentPack mod = pendingCaptureMod;
+            pendingCaptureMod = null;
+
+            if (mod == null || mod != __instance)
             {
                 return;
             }
 
             try
             {
-                byte[] rawData = __instance.GetRawTextureData();
-                if (rawData == null || rawData.Length == 0)
-                {
-                    return;
-                }
-
-                RawTextureEntry entry = new RawTextureEntry
-                {
-                    InternalPath = currentTextureInternalPath ?? __instance.name ?? string.Empty,
-                    Name = __instance.name ?? string.Empty,
-                    Width = __instance.width,
-                    Height = __instance.height,
-                    TextureFormat = (int)__instance.format,
-                    MipmapCount = __instance.mipmapCount,
-                    FilterMode = (int)__instance.filterMode,
-                    AnisoLevel = __instance.anisoLevel,
-                    RawData = rawData
-                };
-
-                if (capturedEntries == null)
-                {
-                    capturedEntries = new List<RawTextureEntry>();
-                }
-
-                capturedEntries.Add(entry);
+                CaptureAndSave(mod);
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Failed to capture texture raw data: " + __instance.name + "\n" + ex.Message);
+                Log.Warning("[FastLoader] Texture capture failed for " + (mod.PackageId ?? "unknown") + ": " + ex.Message);
             }
         }
 
-        public static void BeginCapture(ModContentPack mod)
+        private static void CaptureAndSave(ModContentPack mod)
         {
-            captureActive = true;
-            currentCaptureMod = mod;
-            capturedEntries = new List<RawTextureEntry>();
-            currentTextureInternalPath = null;
-        }
+            ModContentHolder<Texture2D> holder = TexturesField != null
+                ? TexturesField.GetValue(mod) as ModContentHolder<Texture2D>
+                : null;
 
-        public static void SetCurrentTexturePath(string internalPath)
-        {
-            currentTextureInternalPath = internalPath;
-        }
-
-        public static void EndCapture()
-        {
-            if (!captureActive)
+            if (holder == null || holder.contentList == null || holder.contentList.Count == 0)
             {
                 return;
             }
 
-            captureActive = false;
-            ModContentPack mod = currentCaptureMod;
-            List<RawTextureEntry> entries = capturedEntries;
-            currentCaptureMod = null;
-            capturedEntries = null;
-            currentTextureInternalPath = null;
+            string packageId = (mod.PackageId ?? string.Empty).ToLowerInvariant();
+            string cachePath = System.IO.Path.Combine(
+                GenFilePaths.ConfigFolderPath, "FastLoader", "TextureCache",
+                "mod_" + SanitizeFileName(packageId) + ".texcache");
 
-            if (mod == null || entries == null || entries.Count == 0)
+            if (System.IO.File.Exists(cachePath))
             {
                 return;
             }
 
-            FixupInternalPaths(mod, entries);
-            TextureRawCache.SaveCacheForMod(mod, entries);
-        }
+            List<RawTextureEntry> entries = new List<RawTextureEntry>();
 
-        public static bool IsCaptureActive
-        {
-            get { return captureActive; }
-        }
-
-        private static void FixupInternalPaths(ModContentPack mod, List<RawTextureEntry> entries)
-        {
-            ModContentHolder<Texture2D> holder = TexturesField != null ? TexturesField.GetValue(mod) as ModContentHolder<Texture2D> : null;
-            if (holder == null)
-            {
-                return;
-            }
-
-            Dictionary<string, string> nameToPath = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (KeyValuePair<string, Texture2D> kvp in holder.contentList)
             {
-                if (kvp.Value != null && !string.IsNullOrEmpty(kvp.Value.name))
+                Texture2D tex = kvp.Value;
+                if (tex == null)
                 {
-                    nameToPath[kvp.Value.name] = kvp.Key;
+                    continue;
+                }
+
+                try
+                {
+                    int capturedFormat;
+                    byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
+                    if (rawData == null || rawData.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    entries.Add(new RawTextureEntry
+                    {
+                        InternalPath = kvp.Key,
+                        Name = tex.name ?? string.Empty,
+                        Width = tex.width,
+                        Height = tex.height,
+                        TextureFormat = capturedFormat,
+                        MipmapCount = 1,
+                        FilterMode = (int)tex.filterMode,
+                        AnisoLevel = tex.anisoLevel,
+                        RawData = rawData
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning("[FastLoader] Capture: failed to read texture '" + kvp.Key + "': " + ex.Message);
                 }
             }
 
-            for (int i = 0; i < entries.Count; i++)
+            if (entries.Count > 0)
             {
-                RawTextureEntry entry = entries[i];
-                string resolvedPath;
-                if (!string.IsNullOrEmpty(entry.Name) && nameToPath.TryGetValue(entry.Name, out resolvedPath))
+                TextureRawCache.SaveCacheForMod(mod, entries);
+            }
+        }
+
+        private static byte[] ReadTextureRawFromGPU(Texture2D source, out int resultFormat)
+        {
+            RenderTexture rt = RenderTexture.GetTemporary(
+                source.width, source.height, 0,
+                RenderTextureFormat.Default,
+                RenderTextureReadWrite.sRGB);
+
+            Graphics.Blit(source, rt);
+            RenderTexture previous = RenderTexture.active;
+            RenderTexture.active = rt;
+
+            Texture2D readable = new Texture2D(
+                source.width, source.height,
+                TextureFormat.RGBA32, false);
+            readable.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
+            readable.Apply(false, false);
+
+            RenderTexture.active = previous;
+            RenderTexture.ReleaseTemporary(rt);
+
+            readable.Compress(true);
+            readable.Apply(false, false);
+
+            resultFormat = (int)readable.format;
+            byte[] rawData = readable.GetRawTextureData();
+            UnityEngine.Object.Destroy(readable);
+            return rawData;
+        }
+
+        private static string SanitizeFileName(string name)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(name.Length);
+            for (int i = 0; i < name.Length; i++)
+            {
+                char c = name[i];
+                if (char.IsLetterOrDigit(c) || c == '.' || c == '_' || c == '-')
                 {
-                    entry.InternalPath = resolvedPath;
+                    sb.Append(c);
+                }
+                else
+                {
+                    sb.Append('_');
                 }
             }
-        }
-    }
-
-    /// <summary>
-    /// ModContentHolder<Texture2D>.ReloadAll에 대한 패치.
-    /// Cache miss 시에만 동작하여 캡처를 시작/종료한다.
-    /// </summary>
-    [HarmonyPatch]
-    internal static class Patch_ModContentHolderTexture2D_ReloadAll_Capture
-    {
-        private static readonly FieldInfo HolderModField = AccessTools.Field(typeof(ModContentHolder<Texture2D>), "mod");
-
-        private static MethodBase TargetMethod()
-        {
-            return AccessTools.Method(typeof(ModContentHolder<Texture2D>), "ReloadAll");
-        }
-
-        private static void Prefix(ModContentHolder<Texture2D> __instance)
-        {
-            if (FastLoaderRuntime.Settings != null && !FastLoaderRuntime.Settings.CacheEnabled)
-            {
-                return;
-            }
-
-            ModContentPack mod = HolderModField != null ? HolderModField.GetValue(__instance) as ModContentPack : null;
-            if (mod == null || mod.IsCoreMod || mod.IsOfficialMod)
-            {
-                return;
-            }
-
-            Patch_Texture2DApply_Capture.BeginCapture(mod);
-        }
-
-        private static void Postfix()
-        {
-            if (Patch_Texture2DApply_Capture.IsCaptureActive)
-            {
-                Patch_Texture2DApply_Capture.EndCapture();
-            }
+            return sb.ToString();
         }
     }
 }
