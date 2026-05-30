@@ -71,6 +71,18 @@ namespace FastLoader
                     true));
             }
 
+            listing.Gap(8f);
+            Rect buildRow = listing.GetRect(30f);
+            float buildButtonWidth = Mathf.Min(200f, buildRow.width * 0.5f);
+            Rect buildRect = new Rect(buildRow.x, buildRow.y, buildButtonWidth, buildRow.height);
+            if (Widgets.ButtonText(buildRect, "Build texture cache now"))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "Build texture cache from currently loaded textures in memory?\nThis may take a few seconds.",
+                    BuildTextureCacheFromMemory,
+                    true));
+            }
+
             listing.Gap(12f);
             listing.Label("Texture cache: " + TextureRawCache.GetStatusSummary());
 
@@ -116,6 +128,20 @@ namespace FastLoader
             {
                 Log.Error("[FastLoader] Failed to clear all caches.\n" + ex);
                 Messages.Message("Failed to clear FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+
+        private static void BuildTextureCacheFromMemory()
+        {
+            try
+            {
+                int count = TextureRawCache.RebuildFromLoadedMods();
+                Messages.Message("Texture cache built: " + count + " textures saved.", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to build texture cache from memory.\n" + ex);
+                Messages.Message("Failed to build texture cache. See log for details.", MessageTypeDefOf.RejectInput, false);
             }
         }
 

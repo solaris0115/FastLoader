@@ -266,6 +266,107 @@ namespace FastLoader
             return false;
         }
 
+        public static int RebuildFromLoadedMods()
+        {
+            List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
+            int totalSaved = 0;
+
+            for (int i = 0; i < mods.Count; i++)
+            {
+                ModContentPack mod = mods[i];
+                if (mod == null || mod.IsCoreMod || mod.IsOfficialMod)
+                {
+                    continue;
+                }
+
+                ModContentHolder<UnityEngine.Texture2D> holder = TexturesField != null
+                    ? TexturesField.GetValue(mod) as ModContentHolder<UnityEngine.Texture2D>
+                    : null;
+
+                if (holder == null || holder.contentList == null || holder.contentList.Count == 0)
+                {
+                    continue;
+                }
+
+                List<RawTextureEntry> entries = new List<RawTextureEntry>();
+                foreach (KeyValuePair<string, UnityEngine.Texture2D> kvp in holder.contentList)
+                {
+                    UnityEngine.Texture2D tex = kvp.Value;
+                    if (tex == null)
+                    {
+                        continue;
+                    }
+
+                    try
+                    {
+                        int capturedFormat;
+                        byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
+                        if (rawData == null || rawData.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        entries.Add(new RawTextureEntry
+                        {
+                            InternalPath = kvp.Key,
+                            Name = tex.name ?? string.Empty,
+                            Width = tex.width,
+                            Height = tex.height,
+                            TextureFormat = capturedFormat,
+                            MipmapCount = 1,
+                            FilterMode = (int)tex.filterMode,
+                            AnisoLevel = tex.anisoLevel,
+                            RawData = rawData
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning("[FastLoader] Rebuild: failed to read texture '" + kvp.Key + "': " + ex.Message);
+                    }
+                }
+
+                if (entries.Count > 0)
+                {
+                    SaveCacheForMod(mod, entries);
+                    totalSaved += entries.Count;
+                }
+            }
+
+            return totalSaved;
+        }
+
+        private static byte[] ReadTextureRawFromGPU(UnityEngine.Texture2D source, out int resultFormat)
+        {
+            UnityEngine.RenderTexture rt = UnityEngine.RenderTexture.GetTemporary(
+                source.width, source.height, 0,
+                UnityEngine.RenderTextureFormat.Default,
+                UnityEngine.RenderTextureReadWrite.sRGB);
+
+            UnityEngine.Graphics.Blit(source, rt);
+            UnityEngine.RenderTexture previous = UnityEngine.RenderTexture.active;
+            UnityEngine.RenderTexture.active = rt;
+
+            UnityEngine.Texture2D readable = new UnityEngine.Texture2D(
+                source.width, source.height,
+                UnityEngine.TextureFormat.RGBA32, false);
+            readable.ReadPixels(new UnityEngine.Rect(0, 0, source.width, source.height), 0, 0);
+            readable.Apply(false, false);
+
+            UnityEngine.RenderTexture.active = previous;
+            UnityEngine.RenderTexture.ReleaseTemporary(rt);
+
+            readable.Compress(true);
+            readable.Apply(false, false);
+
+            resultFormat = (int)readable.format;
+            byte[] rawData = readable.GetRawTextureData();
+            UnityEngine.Object.Destroy(readable);
+            return rawData;
+        }
+
+        private static readonly System.Reflection.FieldInfo TexturesField =
+            HarmonyLib.AccessTools.Field(typeof(ModContentPack), "textures");
+
         private static void AssignGroupEntriesToMods(TextureCacheGroup group, List<RawTextureEntry> allEntries)
         {
             if (loadedCaches == null)
