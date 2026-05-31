@@ -83,10 +83,7 @@ namespace FastLoader
             Rect buildXmlRect = new Rect(buildTexRect.xMax + 8f, buildRow.y, buildButtonWidth, buildRow.height);
             if (Widgets.ButtonText(buildTexRect, "Build texture cache now"))
             {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear existing texture cache files and rebuild them from textures loaded in memory?",
-                    BuildTextureCacheFromMemory,
-                    true));
+                Find.WindowStack.Add(new TextureCacheBuildWindow());
             }
             if (Widgets.ButtonText(buildXmlRect, "Build XML cache now"))
             {
@@ -175,20 +172,6 @@ namespace FastLoader
             {
                 Log.Error("[FastLoader] Failed to clear all caches.\n" + ex);
                 Messages.Message("Failed to clear FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
-            }
-        }
-
-        private static void BuildTextureCacheFromMemory()
-        {
-            try
-            {
-                int count = TextureRawCache.RebuildFromLoadedMods();
-                Messages.Message("Texture cache built: " + count + " textures saved.", MessageTypeDefOf.TaskCompletion, false);
-            }
-            catch (Exception ex)
-            {
-                Log.Error("[FastLoader] Failed to build texture cache from memory.\n" + ex);
-                Messages.Message("Failed to build texture cache. See log for details.", MessageTypeDefOf.RejectInput, false);
             }
         }
 

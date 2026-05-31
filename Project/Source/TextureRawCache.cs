@@ -342,74 +342,336 @@ namespace FastLoader
 
         public static int RebuildFromLoadedMods()
         {
+            TextureBuildSession session = StartRebuildFromLoadedMods();
+            while (!session.Finished)
+            {
+                session.Step(8);
+            }
+
+            return session.SavedTextureCount;
+        }
+
+        public static TextureBuildSession StartRebuildFromLoadedMods()
+        {
             ResetRuntimeStatus();
             DeleteCacheFiles(false);
+            return new TextureBuildSession();
+        }
 
-            List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
-            int totalSaved = 0;
+        internal sealed class TextureBuildSession
+        {
+            private readonly List<BuildModState> mods = new List<BuildModState>();
+            private List<KeyValuePair<string, UnityEngine.Texture2D>> currentTextures;
+            private List<RawTextureEntry> currentEntries;
+            private BuildModState currentMod;
+            private int currentModIndex;
+            private int currentTextureIndex;
+            private int processedModCount;
+            private int cachedModCount;
+            private int savedTextureCount;
+            private int displayStartIndex;
+            private bool finished;
+            private bool cancelled;
 
-            for (int i = 0; i < mods.Count; i++)
+            public TextureBuildSession()
             {
-                ModContentPack mod = mods[i];
-                if (mod == null || mod.IsCoreMod || mod.IsOfficialMod)
+                List<ModContentPack> runningMods = LoadedModManager.RunningModsListForReading;
+                for (int i = 0; i < runningMods.Count; i++)
                 {
-                    continue;
+                    ModContentPack mod = runningMods[i];
+                    if (mod == null || mod.IsCoreMod || mod.IsOfficialMod)
+                    {
+                        continue;
+                    }
+
+                    mods.Add(new BuildModState
+                    {
+                        Mod = mod,
+                        Name = DescribeMod(mod)
+                    });
                 }
 
+                if (mods.Count == 0)
+                {
+                    finished = true;
+                }
+            }
+
+            public bool Finished
+            {
+                get { return finished; }
+            }
+
+            public bool Cancelled
+            {
+                get { return cancelled; }
+            }
+
+            public int TotalMods
+            {
+                get { return mods.Count; }
+            }
+
+            public int ProcessedModCount
+            {
+                get { return processedModCount; }
+            }
+
+            public int CachedModCount
+            {
+                get { return cachedModCount; }
+            }
+
+            public int SavedTextureCount
+            {
+                get { return savedTextureCount; }
+            }
+
+            public string CurrentModName
+            {
+                get { return currentMod != null ? currentMod.Name : string.Empty; }
+            }
+
+            public float Progress
+            {
+                get
+                {
+                    if (mods.Count == 0)
+                    {
+                        return 1f;
+                    }
+
+                    float value = processedModCount;
+                    if (currentMod != null && currentTextures != null && currentTextures.Count > 0)
+                    {
+                        value += Math.Min(1f, currentTextureIndex / (float)currentTextures.Count);
+                    }
+
+                    return Math.Min(1f, value / mods.Count);
+                }
+            }
+
+            public void Step(int textureBudget)
+            {
+                if (finished || cancelled)
+                {
+                    return;
+                }
+
+                if (textureBudget < 1)
+                {
+                    textureBudget = 1;
+                }
+
+                int processedTextures = 0;
+                while (!finished && processedTextures < textureBudget)
+                {
+                    if (currentMod == null)
+                    {
+                        BeginNextMod();
+                        if (finished)
+                        {
+                            return;
+                        }
+
+                        if (currentTextures == null || currentTextures.Count == 0)
+                        {
+                            FinishCurrentMod();
+                            return;
+                        }
+                    }
+
+                    if (currentTextureIndex < currentTextures.Count)
+                    {
+                        CaptureCurrentTexture();
+                        processedTextures++;
+                    }
+
+                    if (currentTextureIndex >= currentTextures.Count)
+                    {
+                        FinishCurrentMod();
+                        return;
+                    }
+                }
+            }
+
+            public void Cancel()
+            {
+                cancelled = true;
+                finished = true;
+                currentMod = null;
+                currentTextures = null;
+                currentEntries = null;
+            }
+
+            public List<BuildDisplayRow> GetDisplayRows()
+            {
+                List<BuildDisplayRow> rows = new List<BuildDisplayRow>();
+                int end = Math.Min(mods.Count, displayStartIndex + 10);
+                for (int i = displayStartIndex; i < end; i++)
+                {
+                    BuildModState state = mods[i];
+                    rows.Add(new BuildDisplayRow
+                    {
+                        ModName = state.Name,
+                        Cached = state.Cached
+                    });
+                }
+
+                return rows;
+            }
+
+            private void BeginNextMod()
+            {
+                if (currentModIndex >= mods.Count)
+                {
+                    finished = true;
+                    return;
+                }
+
+                currentMod = mods[currentModIndex];
+                currentEntries = new List<RawTextureEntry>();
+                currentTextures = GetLoadedTextures(currentMod.Mod);
+                currentTextureIndex = 0;
+            }
+
+            private static List<KeyValuePair<string, UnityEngine.Texture2D>> GetLoadedTextures(ModContentPack mod)
+            {
                 ModContentHolder<UnityEngine.Texture2D> holder = TexturesField != null
                     ? TexturesField.GetValue(mod) as ModContentHolder<UnityEngine.Texture2D>
                     : null;
 
                 if (holder == null || holder.contentList == null || holder.contentList.Count == 0)
                 {
-                    continue;
+                    return new List<KeyValuePair<string, UnityEngine.Texture2D>>();
                 }
 
-                List<RawTextureEntry> entries = new List<RawTextureEntry>();
+                List<KeyValuePair<string, UnityEngine.Texture2D>> result = new List<KeyValuePair<string, UnityEngine.Texture2D>>(holder.contentList.Count);
                 foreach (KeyValuePair<string, UnityEngine.Texture2D> kvp in holder.contentList)
                 {
-                    UnityEngine.Texture2D tex = kvp.Value;
-                    if (tex == null)
-                    {
-                        continue;
-                    }
-
-                    try
-                    {
-                        int capturedFormat;
-                        byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
-                        if (rawData == null || rawData.Length == 0)
-                        {
-                            continue;
-                        }
-
-                        entries.Add(new RawTextureEntry
-                        {
-                            InternalPath = kvp.Key,
-                            Name = tex.name ?? string.Empty,
-                            Width = tex.width,
-                            Height = tex.height,
-                            TextureFormat = capturedFormat,
-                            MipmapCount = 1,
-                            FilterMode = (int)tex.filterMode,
-                            AnisoLevel = tex.anisoLevel,
-                            RawData = rawData
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        Log.Warning("[FastLoader] Rebuild: failed to read texture '" + kvp.Key + "': " + ex.Message);
-                    }
+                    result.Add(kvp);
                 }
 
-                if (entries.Count > 0)
+                return result;
+            }
+
+            private void CaptureCurrentTexture()
+            {
+                KeyValuePair<string, UnityEngine.Texture2D> kvp = currentTextures[currentTextureIndex];
+                currentTextureIndex++;
+
+                UnityEngine.Texture2D tex = kvp.Value;
+                if (tex == null)
                 {
-                    SaveCacheForMod(mod, entries);
-                    totalSaved += entries.Count;
+                    return;
+                }
+
+                try
+                {
+                    int capturedFormat;
+                    byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
+                    if (rawData == null || rawData.Length == 0)
+                    {
+                        return;
+                    }
+
+                    currentEntries.Add(new RawTextureEntry
+                    {
+                        InternalPath = kvp.Key,
+                        Name = tex.name ?? string.Empty,
+                        Width = tex.width,
+                        Height = tex.height,
+                        TextureFormat = capturedFormat,
+                        MipmapCount = 1,
+                        FilterMode = (int)tex.filterMode,
+                        AnisoLevel = tex.anisoLevel,
+                        RawData = rawData
+                    });
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning("[FastLoader] Rebuild: failed to read texture '" + kvp.Key + "': " + ex.Message);
                 }
             }
 
-            return totalSaved;
+            private void FinishCurrentMod()
+            {
+                if (currentMod == null)
+                {
+                    return;
+                }
+
+                if (currentEntries != null && currentEntries.Count > 0)
+                {
+                    SaveCacheForMod(currentMod.Mod, currentEntries);
+                    currentMod.Cached = HasCurrentCacheInfo(currentMod.Mod);
+                    if (currentMod.Cached)
+                    {
+                        cachedModCount++;
+                        savedTextureCount += currentEntries.Count;
+                    }
+                }
+
+                processedModCount++;
+                currentModIndex++;
+                currentMod = null;
+                currentTextures = null;
+                currentEntries = null;
+                currentTextureIndex = 0;
+
+                UpdateDisplayWindow();
+
+                if (currentModIndex >= mods.Count)
+                {
+                    finished = true;
+                }
+            }
+
+            private void UpdateDisplayWindow()
+            {
+                if (currentModIndex >= mods.Count)
+                {
+                    return;
+                }
+
+                while (displayStartIndex + 10 <= currentModIndex && displayStartIndex + 10 < mods.Count)
+                {
+                    displayStartIndex++;
+                }
+
+                while (displayStartIndex + 10 < mods.Count && CountCachedInDisplayWindow() > 5)
+                {
+                    displayStartIndex++;
+                }
+            }
+
+            private int CountCachedInDisplayWindow()
+            {
+                int count = 0;
+                int end = Math.Min(mods.Count, displayStartIndex + 10);
+                for (int i = displayStartIndex; i < end; i++)
+                {
+                    if (mods[i].Cached)
+                    {
+                        count++;
+                    }
+                }
+
+                return count;
+            }
+        }
+
+        internal sealed class BuildDisplayRow
+        {
+            public string ModName;
+            public bool Cached;
+        }
+
+        private sealed class BuildModState
+        {
+            public ModContentPack Mod;
+            public string Name;
+            public bool Cached;
         }
 
         private static byte[] ReadTextureRawFromGPU(UnityEngine.Texture2D source, out int resultFormat)
