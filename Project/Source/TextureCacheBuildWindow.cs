@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -7,6 +8,7 @@ namespace FastLoader
     internal sealed class TextureCacheBuildWindow : Window
     {
         private readonly TextureRawCache.TextureBuildSession session;
+        private bool completionHandled;
 
         public TextureCacheBuildWindow()
         {
@@ -30,10 +32,14 @@ namespace FastLoader
             if (!session.Finished)
             {
                 session.Step();
+                return;
             }
-            else
+
+            if (!completionHandled && !session.Cancelled)
             {
-                doCloseX = true;
+                completionHandled = true;
+                Messages.Message("Texture cache built: " + session.SavedTextureCount + " textures saved.", MessageTypeDefOf.TaskCompletion, false);
+                Close();
             }
         }
 
