@@ -122,6 +122,82 @@ FastLoader는 한 번 로드된 텍스처를 다시 읽어 raw texture data로 �
 
 `.texcache` 파일에는 텍스처 경로, 이름, 크기, 포맷, 필터 설정, raw texture byte 배열이 들어간다.
 
+#### `manifest.xml`
+
+XML 캐시의 검증 정보와 `resolved_defs.xml` 안의 Def 출처 정보를 저장한다.
+
+```xml
+<FastLoaderCache>
+  <formatVersion>1</formatVersion>
+  <fastLoaderVersion>0.2.2</fastLoaderVersion>
+  <gameVersion>...</gameVersion>
+  <inputHash>...</inputHash>
+  <createdUtc>...</createdUtc>
+  <entries>
+    <entry packageId="mod.package.id" sourceName="Defs/File.xml" />
+  </entries>
+</FastLoaderCache>
+```
+
+`inputHash`는 현재 림월드 버전, 활성 모드 수, 모드 배열 순서, `packageId`, `packageIdPlayerFacing`을 기준으로 만든다. 모드 폴더를 재귀 순회해서 파일 내용을 검증하지는 않는다.
+
+#### `resolved_defs.xml`
+
+Patch와 XML inheritance가 적용된 뒤의 최종 `Defs` 문서를 저장한다.
+
+```xml
+<Defs>
+  <ThingDef>...</ThingDef>
+  <RecipeDef>...</RecipeDef>
+</Defs>
+```
+
+#### `.texcache`
+
+텍스처 캐시는 `BinaryWriter` 기반 바이너리 파일이다. 실제 C# `struct`로 저장하는 것은 아니지만, 파일 레이아웃은 다음 구조와 같다.
+
+```csharp
+struct TextureCacheHeader
+{
+    byte[4] Magic;          // "FLTX"
+    int FormatVersion;      // 현재 1
+    byte[64] CacheHash;     // UTF-8 고정 길이 문자열
+    int TextureCount;
+    long CreatedUtcTicks;
+}
+
+struct RawTextureEntryMeta
+{
+    string InternalPath;
+    string Name;
+    int Width;
+    int Height;
+    int TextureFormat;      // UnityEngine.TextureFormat
+    int MipmapCount;
+    int FilterMode;         // UnityEngine.FilterMode
+    int AnisoLevel;
+    int RawDataLength;
+}
+
+byte[] RawData[TextureCount];
+```
+
+저장 순서는 헤더, 텍스처 메타데이터 배열, raw texture byte 배열 순서다. 읽을 때는 먼저 `Magic`, `FormatVersion`, `CacheHash`를 확인하고, 맞는 경우에만 raw texture data를 읽어 `Texture2D.LoadRawTextureData`로 복원한다.
+
+`CacheHash`는 FastLoader 버전, 림월드 버전, 현재 모드 배열 해시, 모드 `packageId` 또는 그룹 ID를 기준으로 만든다.
+
+#### `groups.xml`
+
+여러 모드의 텍스처를 하나의 `group_{groupid}.texcache`로 묶기 위한 설정 파일이다.
+
+```xml
+<TextureCacheGroups>
+  <group id="group-id" name="Group Name">
+    <mod>mod.package.id</mod>
+  </group>
+</TextureCacheGroups>
+```
+
 ### 오디오 캐시
 
 오디오 캐시는 아직 적용 전이다. 이후 구현 시 `AudioCache/` 아래에 모드별 오디오 캐시를 저장하는 구조를 사용할 예정이다.
