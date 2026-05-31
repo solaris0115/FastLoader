@@ -1,7 +1,8 @@
 # FastLoader
 
-> RimWorld 1.6 시작 로딩 최적화 모드  
-> 반복 실행마다 다시 처리되는 XML 전처리와 모드 텍스처 로딩을 디스크 캐시로 대체한다.
+림월드 로딩 개선 모드입니다.
+게임 실행마다 발생하는 텍스처 로딩과 XML 파싱과 같은 오버헤드를 개선하여 로딩 속도를 개선합니다.
+정리된 Defs를 캐싱하여 데이터 접근 속도를 높이고 텍스처를 일괄로 묶어 초기 로딩 속도를 개선합니다.
 
 [![RimWorld](https://img.shields.io/badge/RimWorld-1.6-green.svg)](#)
 [![Harmony](https://img.shields.io/badge/requires-Harmony-blue.svg)](#)
@@ -15,12 +16,6 @@
 | 전체 로드 | 106.64초 | 55.61초 |
 | XML 파싱 및 patch 적용 | 10.29초 | 3.01초 |
 | 텍스처 로드/디코딩 | 45.09초 | 2.50초 |
-
-전체 로드 시간 기준으로 약 48% 줄었다. 실제 단축 대부분은 모드 텍스처의 PNG/JPG 디코딩 경로를 `.texcache` raw texture 복원 경로로 대체한 부분에서 발생했고, XML 전처리에서도 약 7.3초가 줄었다.
-
-텍스처 개선 후 값은 `.texcache` 파일 읽기/검증과 raw texture 복원 시간을 합친 값이다. 이번 측정에서는 텍스처 캐시 대상 모드 111개 중 캐시 파일 101개가 사용되었다.
-
-FastLoader가 직접 줄이는 구간은 XML과 텍스처다. 그 밖의 시간은 주로 다른 모드의 Harmony patch/static constructor, texture atlas 생성, 사운드/문자열 로딩, Def 후처리 같은 림월드 기본 로딩 구간이다.
 
 ## 빠른 시작
 
