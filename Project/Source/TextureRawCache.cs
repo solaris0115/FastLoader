@@ -17,7 +17,6 @@ namespace FastLoader
         private static int cacheMissCount;
         private static int cacheHitEntryCount;
         private static long cacheHitRawBytes;
-        private static List<string> cacheMissList;
         private static string currentLoadoutHash;
 
         private static string CacheRootPath
@@ -131,11 +130,6 @@ namespace FastLoader
             }
 
             cacheMissCount++;
-            if (cacheMissList == null)
-            {
-                cacheMissList = new List<string>();
-            }
-            cacheMissList.Add(packageId);
             return false;
         }
 
@@ -287,7 +281,6 @@ namespace FastLoader
             cacheMissCount = 0;
             cacheHitEntryCount = 0;
             cacheHitRawBytes = 0L;
-            cacheMissList = null;
             currentLoadoutHash = null;
         }
 
@@ -304,7 +297,7 @@ namespace FastLoader
                 long totalSize;
                 GetCacheFileStats(out fileCount, out totalSize);
 
-                return fileCount + " files, " + FormatSize(totalSize) + " (hits: " + cacheHitCount + ", misses: " + cacheMissCount + ")";
+                return fileCount + " files, " + FormatSize(totalSize);
             }
             catch
             {
@@ -312,9 +305,26 @@ namespace FastLoader
             }
         }
 
-        public static List<string> GetCacheMissList()
+        public static List<string> GetModsWithoutCurrentCacheInfo()
         {
-            return cacheMissList;
+            List<string> result = new List<string>();
+            List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
+
+            for (int i = 0; i < mods.Count; i++)
+            {
+                ModContentPack mod = mods[i];
+                if (mod == null || mod.IsCoreMod || mod.IsOfficialMod)
+                {
+                    continue;
+                }
+
+                if (!HasCurrentCacheInfo(mod))
+                {
+                    result.Add(DescribeMod(mod));
+                }
+            }
+
+            return result;
         }
 
         public static bool IsTextureExtension(string extension)
@@ -506,6 +516,38 @@ namespace FastLoader
                 {
                 }
             }
+        }
+
+        private static bool HasCurrentCacheInfo(ModContentPack mod)
+        {
+            if (mod == null)
+            {
+                return false;
+            }
+
+            string packageId = NormalizePackageId(mod.PackageId);
+            string cachePath = GetCachePathForMod(packageId);
+            string hash = ComputeModHash(mod);
+
+            TextureCacheGroup group = TextureCacheGroupManager.FindGroupForMod(packageId);
+            if (group != null)
+            {
+                cachePath = GetCachePathForGroup(group.GroupId);
+                hash = ComputeGroupHash(group);
+            }
+
+            return TextureCacheFile.HasMatchingHeader(cachePath, hash);
+        }
+
+        private static string DescribeMod(ModContentPack mod)
+        {
+            string name = mod.Name;
+            if (string.IsNullOrEmpty(name))
+            {
+                return "(unnamed mod)";
+            }
+
+            return name;
         }
 
         private static string GetCurrentLoadoutHash()

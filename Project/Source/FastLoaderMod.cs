@@ -10,8 +10,8 @@ namespace FastLoader
     public sealed class FastLoaderMod : Mod
     {
         private readonly FastLoaderSettings settings;
-        private bool showMissList;
-        private Vector2 missListScroll;
+        private bool showMissingCacheList;
+        private Vector2 missingCacheListScroll;
 
         public FastLoaderMod(ModContentPack content) : base(content)
         {
@@ -99,34 +99,34 @@ namespace FastLoader
             listing.Gap(12f);
             listing.Label("Texture cache: " + TextureRawCache.GetStatusSummary());
 
-            List<string> missList = TextureRawCache.GetCacheMissList();
-            if (missList != null && missList.Count > 0)
+            List<string> missingCacheList = TextureRawCache.GetModsWithoutCurrentCacheInfo();
+            listing.Gap(4f);
+            Rect missingRow = listing.GetRect(24f);
+            Widgets.Label(missingRow, "Mods without texture cache info: " + missingCacheList.Count);
+            if (missingCacheList.Count > 0)
             {
-                listing.Gap(4f);
-                Rect missRow = listing.GetRect(24f);
-                Widgets.Label(missRow, "Cache misses: " + missList.Count);
-                Rect toggleRect = new Rect(missRow.xMax - 60f, missRow.y, 60f, missRow.height);
-                if (Widgets.ButtonText(toggleRect, showMissList ? "Hide" : "Show"))
+                Rect toggleRect = new Rect(missingRow.xMax - 60f, missingRow.y, 60f, missingRow.height);
+                if (Widgets.ButtonText(toggleRect, showMissingCacheList ? "Hide" : "Show"))
                 {
-                    showMissList = !showMissList;
+                    showMissingCacheList = !showMissingCacheList;
                 }
 
-                if (showMissList)
+                if (showMissingCacheList)
                 {
                     listing.Gap(4f);
-                    float listHeight = Mathf.Min(missList.Count * 22f, 200f);
+                    float listHeight = Mathf.Min(missingCacheList.Count * 22f, 200f);
                     Rect scrollOuter = listing.GetRect(listHeight);
-                    Rect scrollInner = new Rect(0f, 0f, scrollOuter.width - 16f, missList.Count * 22f);
-                    Widgets.BeginScrollView(scrollOuter, ref missListScroll, scrollInner);
+                    Rect scrollInner = new Rect(0f, 0f, scrollOuter.width - 16f, missingCacheList.Count * 22f);
+                    Widgets.BeginScrollView(scrollOuter, ref missingCacheListScroll, scrollInner);
                     float y = 0f;
-                    for (int i = 0; i < missList.Count; i++)
+                    for (int i = 0; i < missingCacheList.Count; i++)
                     {
                         Rect row = new Rect(0f, y, scrollInner.width, 22f);
                         if (i % 2 == 1)
                         {
                             Widgets.DrawLightHighlight(row);
                         }
-                        Widgets.Label(row, "  " + missList[i]);
+                        Widgets.Label(row, "  " + missingCacheList[i]);
                         y += 22f;
                     }
                     Widgets.EndScrollView();

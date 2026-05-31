@@ -157,6 +157,46 @@ namespace FastLoader
             }
         }
 
+        public static bool HasMatchingHeader(string path, string expectedHash)
+        {
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+
+            try
+            {
+                using (FileStream fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096))
+                using (BinaryReader reader = new BinaryReader(fs, Encoding.UTF8))
+                {
+                    byte[] magic = reader.ReadBytes(4);
+                    if (magic.Length != 4 || magic[0] != Magic[0] || magic[1] != Magic[1] || magic[2] != Magic[2] || magic[3] != Magic[3])
+                    {
+                        return false;
+                    }
+
+                    int version = reader.ReadInt32();
+                    if (version != FormatVersion)
+                    {
+                        return false;
+                    }
+
+                    string storedHash = ReadFixedString(reader, 64);
+                    if (!string.Equals(storedHash, expectedHash, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return false;
+                    }
+
+                    int count = reader.ReadInt32();
+                    return count > 0 && count <= 100000;
+                }
+            }
+            catch (Exception)
+            {
+                return false;
+            }
+        }
+
         private static void WriteFixedString(BinaryWriter writer, string value, int fixedLength)
         {
             byte[] bytes = Encoding.UTF8.GetBytes(value ?? string.Empty);
