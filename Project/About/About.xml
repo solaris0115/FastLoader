@@ -17,6 +17,6 @@
     <li>brrainz.harmony</li>
   </loadAfter>
   <description>
-Optimizes RimWorld XML loading to make subsequent game launches faster.
+Optimizes RimWorld XML loading and Texture load sequence.
   </description>
 </ModMetaData>
