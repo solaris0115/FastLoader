@@ -55,7 +55,7 @@ namespace FastLoader
             if (Widgets.ButtonText(resetAllRect, "Reset all caches"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear all FastLoader caches (XML + texture)? They will be automatically rebuilt on next load.",
+                    "Clear all FastLoader cache files (XML + texture)? Use the build buttons to create them again.",
                     ResetAllCachesFromSettings,
                     true));
             }
@@ -63,7 +63,7 @@ namespace FastLoader
             if (Widgets.ButtonText(xmlClearRect, "Reset XML cache"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear FastLoader XML cache files? The XML cache will be rebuilt on the next load.",
+                    "Clear FastLoader XML cache files? Use Build XML cache now to create them again.",
                     DeleteXmlCacheFromSettings,
                     true));
             }
@@ -71,7 +71,7 @@ namespace FastLoader
             if (Widgets.ButtonText(texClearRect, "Reset texture cache"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear FastLoader texture cache files? They will be rebuilt automatically on next load.",
+                    "Clear FastLoader texture cache files? Use Build texture cache now to create them again.",
                     DeleteResourceCacheFromSettings,
                     true));
             }
@@ -84,14 +84,14 @@ namespace FastLoader
             if (Widgets.ButtonText(buildTexRect, "Build texture cache now"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Build texture cache from currently loaded textures in memory?\nThis may take a few seconds.",
+                    "Clear existing texture cache files and rebuild them from textures loaded in memory?",
                     BuildTextureCacheFromMemory,
                     true));
             }
             if (Widgets.ButtonText(buildXmlRect, "Build XML cache now"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Build XML cache from current resolved defs in memory?",
+                    "Write XML cache from the current resolved defs in memory?",
                     BuildXmlCacheFromMemory,
                     true));
             }
@@ -169,7 +169,7 @@ namespace FastLoader
             try
             {
                 FastLoaderRuntime.DeleteAllCaches();
-                Messages.Message("All FastLoader caches cleared. They will be rebuilt on next load.", MessageTypeDefOf.TaskCompletion, false);
+                Messages.Message("All FastLoader caches cleared.", MessageTypeDefOf.TaskCompletion, false);
             }
             catch (Exception ex)
             {

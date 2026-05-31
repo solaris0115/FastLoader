@@ -114,7 +114,6 @@ namespace FastLoader
             inputHash = null;
             statusReason = null;
             parsedDefCount = 0;
-            ClearRebuildRequest();
 
             TryDeleteFile(ManifestPath);
             TryDeleteFile(ResolvedDefsPath);
@@ -129,32 +128,6 @@ namespace FastLoader
         {
             TextureRawCache.DeleteAll();
             Log.Message("[FastLoader] Resource cache files cleared.");
-        }
-
-        public static bool RequestAllCacheBuildFromSettings()
-        {
-            bool xmlBuiltNow = WriteXmlCacheFromCurrentSnapshot();
-            if (!xmlBuiltNow)
-            {
-                RequestCacheRebuildOnNextLoad();
-            }
-
-            TextureRawCache.DeleteAll();
-            return xmlBuiltNow;
-        }
-
-        public static void RequestCacheRebuildOnNextLoad()
-        {
-            DeleteXmlCache();
-
-            if (Settings != null)
-            {
-                Settings.CacheEnabled = true;
-                Settings.ForceRebuildOnNextLoad = true;
-                Settings.Write();
-            }
-
-            Log.Message("[FastLoader] Cache rebuild requested for next load.");
         }
 
         public static void BeginLoad(bool hotReload)
@@ -188,14 +161,6 @@ namespace FastLoader
                 using (FastProfile.Scope("Manifest/mod loadout hash"))
                 {
                     inputHash = FastLoaderHasher.ComputeFastModListHash();
-                }
-
-                if (Settings != null && Settings.ForceRebuildOnNextLoad)
-                {
-                    Mode = FastLoaderMode.CacheMiss;
-                    statusReason = "forced rebuild from settings";
-                    FastProfile.SetStatus("MISS", statusReason, inputHash);
-                    return;
                 }
 
                 string missReason;
@@ -242,17 +207,6 @@ namespace FastLoader
             {
                 Log.Warning("[FastLoader] Could not clear protected cache file: " + path + "\n" + ex.Message);
             }
-        }
-
-        private static void ClearRebuildRequest()
-        {
-            if (Settings == null || !Settings.ForceRebuildOnNextLoad)
-            {
-                return;
-            }
-
-            Settings.ForceRebuildOnNextLoad = false;
-            Settings.Write();
         }
 
         private static void TryDeleteEmptyDirectory(string path)
@@ -304,7 +258,7 @@ namespace FastLoader
                 lastResolvedXmlSnapshot.ResolvedDefs.DocumentElement == null ||
                 string.IsNullOrEmpty(lastResolvedXmlSnapshot.InputHash))
             {
-                Log.Message("[FastLoader] XML cache cannot be built immediately because no resolved XML snapshot is available. It will be rebuilt on next load.");
+                Log.Message("[FastLoader] XML cache cannot be built because no resolved XML snapshot is available.");
                 return false;
             }
 
@@ -313,13 +267,12 @@ namespace FastLoader
                 Directory.CreateDirectory(CachePath);
                 WriteResolvedDefs(lastResolvedXmlSnapshot.ResolvedDefs);
                 WriteManifest(lastResolvedXmlSnapshot);
-                ClearRebuildRequest();
                 Log.Message("[FastLoader] XML cache written from the current resolved XML snapshot.");
                 return true;
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Failed to write XML cache from current snapshot. It will be rebuilt on next load.\n" + ex);
+                Log.Warning("[FastLoader] Failed to write XML cache from current snapshot.\n" + ex);
                 return false;
             }
         }

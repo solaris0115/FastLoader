@@ -233,14 +233,12 @@ namespace FastLoader
 
         public static void DeleteAll()
         {
-            loadedCaches = null;
-            cacheHitCount = 0;
-            cacheMissCount = 0;
-            cacheHitEntryCount = 0;
-            cacheHitRawBytes = 0L;
-            cacheMissList = null;
-            currentLoadoutHash = null;
+            ResetRuntimeStatus();
+            DeleteCacheFiles(true);
+        }
 
+        private static void DeleteCacheFiles(bool includeGroupSettings)
+        {
             string root = CacheRootPath;
             if (!Directory.Exists(root))
             {
@@ -255,7 +253,10 @@ namespace FastLoader
                     TryDeleteFile(files[i]);
                 }
 
-                TryDeleteFile(Path.Combine(root, "groups.xml"));
+                if (includeGroupSettings)
+                {
+                    TryDeleteFile(Path.Combine(root, "groups.xml"));
+                }
             }
             catch (Exception ex)
             {
@@ -275,6 +276,11 @@ namespace FastLoader
         }
 
         public static void OnClearDestroy()
+        {
+            ResetRuntimeStatus();
+        }
+
+        public static void ResetRuntimeStatus()
         {
             loadedCaches = null;
             cacheHitCount = 0;
@@ -326,6 +332,9 @@ namespace FastLoader
 
         public static int RebuildFromLoadedMods()
         {
+            ResetRuntimeStatus();
+            DeleteCacheFiles(false);
+
             List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
             int totalSaved = 0;
 
