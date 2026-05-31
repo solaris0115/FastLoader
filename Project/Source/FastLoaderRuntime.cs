@@ -37,7 +37,6 @@ namespace FastLoader
     {
         public const string CacheFormatVersion = "1";
         public const string FastLoaderVersion = "0.2.2";
-        private static readonly bool SkipInputHashScan = true;
 
         private static CacheData loadedCache;
         private static CacheData lastResolvedXmlSnapshot;
@@ -186,19 +185,9 @@ namespace FastLoader
 
             try
             {
-                if (SkipInputHashScan)
+                using (FastProfile.Scope("Manifest/mod loadout hash"))
                 {
-                    using (FastProfile.Scope("Manifest/input hash scan skipped"))
-                    {
-                        inputHash = FastLoaderHasher.ComputeFastModListHash();
-                    }
-                }
-                else
-                {
-                    using (FastProfile.Scope("Manifest/input hash scan"))
-                    {
-                        inputHash = FastLoaderHasher.ComputeInputHash();
-                    }
+                    inputHash = FastLoaderHasher.ComputeFastModListHash();
                 }
 
                 if (Settings != null && Settings.ForceRebuildOnNextLoad)
@@ -765,7 +754,7 @@ namespace FastLoader
             {
                 using (FastProfile.Scope("Input hash: fast mod list only"))
                 {
-                    AppendString(sha, "FastLoaderManualCacheV1");
+                    AppendString(sha, "FastLoaderModLoadoutHashV2");
                     AppendString(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
 
                     List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
@@ -776,146 +765,12 @@ namespace FastLoader
                         AppendString(sha, i.ToString());
                         AppendString(sha, mod.PackageId ?? string.Empty);
                         AppendString(sha, mod.PackageIdPlayerFacing ?? string.Empty);
-                        AppendString(sha, mod.Name ?? string.Empty);
-                        AppendString(sha, mod.RootDir ?? string.Empty);
                     }
                 }
 
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
                 return BytesToHex(sha.Hash);
             }
-        }
-
-        public static string ComputeInputHash()
-        {
-            using (SHA256 sha = SHA256.Create())
-            {
-                using (FastProfile.Scope("Input hash: header"))
-                {
-                    AppendString(sha, "FastLoaderInputHashV2");
-                    AppendString(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
-                }
-
-                List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
-                AppendString(sha, "modCount=" + mods.Count);
-                for (int i = 0; i < mods.Count; i++)
-                {
-                    ModContentPack mod = mods[i];
-                    string modLabel = DescribeModForProfile(i, mod);
-                    using (FastProfile.Scope("Input hash: mod metadata: " + modLabel))
-                    {
-                        AppendString(sha, "mod");
-                        AppendString(sha, i.ToString());
-                        AppendString(sha, mod.PackageId ?? string.Empty);
-                        AppendString(sha, mod.PackageIdPlayerFacing ?? string.Empty);
-                        AppendString(sha, mod.Name ?? string.Empty);
-                        AppendString(sha, mod.RootDir ?? string.Empty);
-                        AppendString(sha, mod.IsOfficialMod.ToString());
-                        AppendString(sha, mod.IsCoreMod.ToString());
-
-                        if (mod.foldersToLoadDescendingOrder != null)
-                        {
-                            AppendString(sha, "loadFolders=" + mod.foldersToLoadDescendingOrder.Count);
-                            for (int f = 0; f < mod.foldersToLoadDescendingOrder.Count; f++)
-                            {
-                                AppendString(sha, mod.foldersToLoadDescendingOrder[f] ?? string.Empty);
-                            }
-                        }
-                    }
-
-                    using (FastProfile.Scope("Input hash: hash files: " + modLabel))
-                    {
-                        HashDirectory(sha, mod.RootDir);
-                    }
-                }
-
-                sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
-                return BytesToHex(sha.Hash);
-            }
-        }
-
-        private static void HashDirectory(HashAlgorithm sha, string rootPath)
-        {
-            if (string.IsNullOrEmpty(rootPath) || !Directory.Exists(rootPath))
-            {
-                AppendString(sha, "missing-root");
-                AppendString(sha, rootPath ?? string.Empty);
-                return;
-            }
-
-            List<string> files = new List<string>();
-            using (FastProfile.Scope("Hash directory: enumerate files"))
-            {
-                try
-                {
-                    files.AddRange(Directory.EnumerateFiles(rootPath, "*", SearchOption.AllDirectories));
-                }
-                catch (Exception ex)
-                {
-                    AppendString(sha, "enumerate-error");
-                    AppendString(sha, rootPath);
-                    AppendString(sha, ex.GetType().FullName);
-                    return;
-                }
-            }
-
-            files.Sort(StringComparer.OrdinalIgnoreCase);
-            AppendString(sha, "fileCount=" + files.Count);
-
-            using (FastProfile.Scope("Hash directory: read file metadata"))
-            {
-                for (int i = 0; i < files.Count; i++)
-                {
-                    string file = files[i];
-                    string relative = MakeRelativePath(rootPath, file);
-                    AppendString(sha, relative);
-
-                    try
-                    {
-                        FileInfo info = new FileInfo(file);
-                        AppendString(sha, info.Length.ToString());
-                        AppendString(sha, info.LastWriteTimeUtc.Ticks.ToString());
-                    }
-                    catch (Exception ex)
-                    {
-                        AppendString(sha, "file-metadata-error");
-                        AppendString(sha, file);
-                        AppendString(sha, ex.GetType().FullName);
-                    }
-                }
-            }
-        }
-
-        private static string DescribeModForProfile(int index, ModContentPack mod)
-        {
-            if (mod == null)
-            {
-                return index + " (null)";
-            }
-
-            string id = mod.PackageIdPlayerFacing;
-            if (string.IsNullOrEmpty(id))
-            {
-                id = mod.PackageId;
-            }
-
-            string name = mod.Name;
-            if (string.IsNullOrEmpty(name))
-            {
-                name = "(unnamed)";
-            }
-
-            return index + " " + (id ?? string.Empty) + " / " + name;
-        }
-
-        private static string MakeRelativePath(string rootPath, string filePath)
-        {
-            if (filePath.StartsWith(rootPath, StringComparison.OrdinalIgnoreCase))
-            {
-                return filePath.Substring(rootPath.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-            }
-
-            return filePath;
         }
 
         private static void AppendString(HashAlgorithm sha, string value)

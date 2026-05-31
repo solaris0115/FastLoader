@@ -18,6 +18,7 @@ namespace FastLoader
         private static int cacheHitEntryCount;
         private static long cacheHitRawBytes;
         private static List<string> cacheMissList;
+        private static string currentLoadoutHash;
 
         private static string CacheRootPath
         {
@@ -195,9 +196,9 @@ namespace FastLoader
             {
                 AppendHash(sha, FastLoaderRuntime.FastLoaderVersion);
                 AppendHash(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
+                AppendHash(sha, "loadout");
+                AppendHash(sha, GetCurrentLoadoutHash());
                 AppendHash(sha, mod.PackageId ?? string.Empty);
-                AppendHash(sha, mod.Name ?? string.Empty);
-                AppendHash(sha, mod.RootDir ?? string.Empty);
 
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
                 return BytesToHex(sha.Hash);
@@ -215,18 +216,14 @@ namespace FastLoader
             {
                 AppendHash(sha, FastLoaderRuntime.FastLoaderVersion);
                 AppendHash(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
+                AppendHash(sha, "loadout");
+                AppendHash(sha, GetCurrentLoadoutHash());
                 AppendHash(sha, group.GroupId ?? string.Empty);
                 AppendHash(sha, group.PackageIds.Count.ToString());
 
                 for (int i = 0; i < group.PackageIds.Count; i++)
                 {
                     AppendHash(sha, group.PackageIds[i] ?? string.Empty);
-                    ModContentPack mod = FastLoaderRuntime.FindMod(group.PackageIds[i]);
-                    if (mod != null)
-                    {
-                        AppendHash(sha, mod.Name ?? string.Empty);
-                        AppendHash(sha, mod.RootDir ?? string.Empty);
-                    }
                 }
 
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
@@ -242,6 +239,7 @@ namespace FastLoader
             cacheHitEntryCount = 0;
             cacheHitRawBytes = 0L;
             cacheMissList = null;
+            currentLoadoutHash = null;
 
             string root = CacheRootPath;
             if (!Directory.Exists(root))
@@ -284,6 +282,7 @@ namespace FastLoader
             cacheHitEntryCount = 0;
             cacheHitRawBytes = 0L;
             cacheMissList = null;
+            currentLoadoutHash = null;
         }
 
         public static string GetStatusSummary()
@@ -498,6 +497,25 @@ namespace FastLoader
                 {
                 }
             }
+        }
+
+        private static string GetCurrentLoadoutHash()
+        {
+            if (!string.IsNullOrEmpty(currentLoadoutHash))
+            {
+                return currentLoadoutHash;
+            }
+
+            try
+            {
+                currentLoadoutHash = FastLoaderHasher.ComputeFastModListHash();
+            }
+            catch (Exception ex)
+            {
+                currentLoadoutHash = "loadout-hash-error:" + ex.GetType().FullName;
+            }
+
+            return currentLoadoutHash;
         }
 
         private static string ExtractPackageIdFromPath(string internalPath, TextureCacheGroup group)
