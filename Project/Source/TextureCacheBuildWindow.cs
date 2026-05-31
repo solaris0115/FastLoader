@@ -94,16 +94,8 @@ namespace FastLoader
                 }
 
                 TextureRawCache.BuildDisplayRow row = rows[i];
-                Rect nameRect = new Rect(rowRect.x + 4f, rowRect.y, rowRect.width - 44f, rowRect.height);
+                Rect nameRect = new Rect(rowRect.x + 4f, rowRect.y, rowRect.width - 8f, rowRect.height);
                 Widgets.Label(nameRect, row.ModName);
-
-                if (row.Cached)
-                {
-                    Rect checkRect = new Rect(rowRect.xMax - 34f, rowRect.y, 30f, rowRect.height);
-                    Text.Anchor = TextAnchor.MiddleCenter;
-                    Widgets.Label(checkRect, "V");
-                    Text.Anchor = TextAnchor.UpperLeft;
-                }
             }
         }
     }

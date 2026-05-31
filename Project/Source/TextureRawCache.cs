@@ -370,6 +370,7 @@ namespace FastLoader
             private int cachedModCount;
             private int savedTextureCount;
             private int displayStartIndex;
+            private int displayEndIndex;
             private bool finished;
             private bool cancelled;
 
@@ -507,14 +508,13 @@ namespace FastLoader
             public List<BuildDisplayRow> GetDisplayRows()
             {
                 List<BuildDisplayRow> rows = new List<BuildDisplayRow>();
-                int end = Math.Min(mods.Count, displayStartIndex + 10);
+                int end = Math.Min(displayEndIndex, mods.Count);
                 for (int i = displayStartIndex; i < end; i++)
                 {
                     BuildModState state = mods[i];
                     rows.Add(new BuildDisplayRow
                     {
-                        ModName = state.Name,
-                        Cached = state.Cached
+                        ModName = state.Name
                     });
                 }
 
@@ -533,6 +533,9 @@ namespace FastLoader
                 currentEntries = new List<RawTextureEntry>();
                 currentTextures = GetLoadedTextures(currentMod.Mod);
                 currentTextureIndex = 0;
+
+                displayEndIndex = currentModIndex + 1;
+                displayStartIndex = Math.Max(0, displayEndIndex - 10);
             }
 
             private static List<KeyValuePair<string, UnityEngine.Texture2D>> GetLoadedTextures(ModContentPack mod)
@@ -604,8 +607,7 @@ namespace FastLoader
                 if (currentEntries != null && currentEntries.Count > 0)
                 {
                     SaveCacheForMod(currentMod.Mod, currentEntries);
-                    currentMod.Cached = HasCurrentCacheInfo(currentMod.Mod);
-                    if (currentMod.Cached)
+                    if (HasCurrentCacheInfo(currentMod.Mod))
                     {
                         cachedModCount++;
                         savedTextureCount += currentEntries.Count;
@@ -619,59 +621,22 @@ namespace FastLoader
                 currentEntries = null;
                 currentTextureIndex = 0;
 
-                UpdateDisplayWindow();
-
                 if (currentModIndex >= mods.Count)
                 {
                     finished = true;
                 }
-            }
-
-            private void UpdateDisplayWindow()
-            {
-                if (currentModIndex >= mods.Count)
-                {
-                    return;
-                }
-
-                while (displayStartIndex + 10 <= currentModIndex && displayStartIndex + 10 < mods.Count)
-                {
-                    displayStartIndex++;
-                }
-
-                while (displayStartIndex + 10 < mods.Count && CountCachedInDisplayWindow() > 5)
-                {
-                    displayStartIndex++;
-                }
-            }
-
-            private int CountCachedInDisplayWindow()
-            {
-                int count = 0;
-                int end = Math.Min(mods.Count, displayStartIndex + 10);
-                for (int i = displayStartIndex; i < end; i++)
-                {
-                    if (mods[i].Cached)
-                    {
-                        count++;
-                    }
-                }
-
-                return count;
             }
         }
 
         internal sealed class BuildDisplayRow
         {
             public string ModName;
-            public bool Cached;
         }
 
         private sealed class BuildModState
         {
             public ModContentPack Mod;
             public string Name;
-            public bool Cached;
         }
 
         private static byte[] ReadTextureRawFromGPU(UnityEngine.Texture2D source, out int resultFormat)
