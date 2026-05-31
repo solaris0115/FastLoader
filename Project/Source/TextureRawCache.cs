@@ -345,7 +345,7 @@ namespace FastLoader
             TextureBuildSession session = StartRebuildFromLoadedMods();
             while (!session.Finished)
             {
-                session.Step(8);
+                session.Step();
             }
 
             return session.SavedTextureCount;
@@ -365,7 +365,6 @@ namespace FastLoader
             private List<RawTextureEntry> currentEntries;
             private BuildModState currentMod;
             private int currentModIndex;
-            private int currentTextureIndex;
             private int processedModCount;
             private int cachedModCount;
             private int savedTextureCount;
@@ -442,58 +441,25 @@ namespace FastLoader
                         return 1f;
                     }
 
-                    float value = processedModCount;
-                    if (currentMod != null && currentTextures != null && currentTextures.Count > 0)
-                    {
-                        value += Math.Min(1f, currentTextureIndex / (float)currentTextures.Count);
-                    }
-
-                    return Math.Min(1f, value / mods.Count);
+                    return Math.Min(1f, processedModCount / (float)mods.Count);
                 }
             }
 
-            public void Step(int textureBudget)
+            public void Step()
             {
                 if (finished || cancelled)
                 {
                     return;
                 }
 
-                if (textureBudget < 1)
+                BeginNextMod();
+                if (finished)
                 {
-                    textureBudget = 1;
+                    return;
                 }
 
-                int processedTextures = 0;
-                while (!finished && processedTextures < textureBudget)
-                {
-                    if (currentMod == null)
-                    {
-                        BeginNextMod();
-                        if (finished)
-                        {
-                            return;
-                        }
-
-                        if (currentTextures == null || currentTextures.Count == 0)
-                        {
-                            FinishCurrentMod();
-                            return;
-                        }
-                    }
-
-                    if (currentTextureIndex < currentTextures.Count)
-                    {
-                        CaptureCurrentTexture();
-                        processedTextures++;
-                    }
-
-                    if (currentTextureIndex >= currentTextures.Count)
-                    {
-                        FinishCurrentMod();
-                        return;
-                    }
-                }
+                CaptureCurrentModTextures();
+                FinishCurrentMod();
             }
 
             public void Cancel()
@@ -532,7 +498,6 @@ namespace FastLoader
                 currentMod = mods[currentModIndex];
                 currentEntries = new List<RawTextureEntry>();
                 currentTextures = GetLoadedTextures(currentMod.Mod);
-                currentTextureIndex = 0;
 
                 displayEndIndex = currentModIndex + 1;
                 displayStartIndex = Math.Max(0, displayEndIndex - 10);
@@ -558,42 +523,48 @@ namespace FastLoader
                 return result;
             }
 
-            private void CaptureCurrentTexture()
+            private void CaptureCurrentModTextures()
             {
-                KeyValuePair<string, UnityEngine.Texture2D> kvp = currentTextures[currentTextureIndex];
-                currentTextureIndex++;
-
-                UnityEngine.Texture2D tex = kvp.Value;
-                if (tex == null)
+                if (currentTextures == null)
                 {
                     return;
                 }
 
-                try
+                for (int i = 0; i < currentTextures.Count; i++)
                 {
-                    int capturedFormat;
-                    byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
-                    if (rawData == null || rawData.Length == 0)
+                    KeyValuePair<string, UnityEngine.Texture2D> kvp = currentTextures[i];
+                    UnityEngine.Texture2D tex = kvp.Value;
+                    if (tex == null)
                     {
-                        return;
+                        continue;
                     }
 
-                    currentEntries.Add(new RawTextureEntry
+                    try
                     {
-                        InternalPath = kvp.Key,
-                        Name = tex.name ?? string.Empty,
-                        Width = tex.width,
-                        Height = tex.height,
-                        TextureFormat = capturedFormat,
-                        MipmapCount = 1,
-                        FilterMode = (int)tex.filterMode,
-                        AnisoLevel = tex.anisoLevel,
-                        RawData = rawData
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Log.Warning("[FastLoader] Rebuild: failed to read texture '" + kvp.Key + "': " + ex.Message);
+                        int capturedFormat;
+                        byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
+                        if (rawData == null || rawData.Length == 0)
+                        {
+                            continue;
+                        }
+
+                        currentEntries.Add(new RawTextureEntry
+                        {
+                            InternalPath = kvp.Key,
+                            Name = tex.name ?? string.Empty,
+                            Width = tex.width,
+                            Height = tex.height,
+                            TextureFormat = capturedFormat,
+                            MipmapCount = 1,
+                            FilterMode = (int)tex.filterMode,
+                            AnisoLevel = tex.anisoLevel,
+                            RawData = rawData
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning("[FastLoader] Rebuild: failed to read texture '" + kvp.Key + "': " + ex.Message);
+                    }
                 }
             }
 
@@ -619,7 +590,6 @@ namespace FastLoader
                 currentMod = null;
                 currentTextures = null;
                 currentEntries = null;
-                currentTextureIndex = 0;
 
                 if (currentModIndex >= mods.Count)
                 {

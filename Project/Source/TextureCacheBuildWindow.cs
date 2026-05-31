@@ -29,7 +29,7 @@ namespace FastLoader
 
             if (!session.Finished)
             {
-                session.Step(1);
+                session.Step();
             }
             else
             {
