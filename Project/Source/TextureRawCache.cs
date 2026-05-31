@@ -84,24 +84,29 @@ namespace FastLoader
 
             if (loadedCaches != null && loadedCaches.TryGetValue(packageId, out entries))
             {
-                cacheHitCount++;
-                AddHitEntryStats(entries);
-                return entries != null && entries.Count > 0;
+                using (FastLoaderProfiler.Scope("FastLoader.TextureCache.MemoryHit | " + FastLoaderProfiler.DescribeMod(mod)))
+                {
+                    cacheHitCount++;
+                    AddHitEntryStats(entries);
+                    return entries != null && entries.Count > 0;
+                }
             }
 
             string hash = ComputeModHash(mod);
             string cachePath = GetCachePathForMod(packageId);
+            string profileTarget = FastLoaderProfiler.DescribeMod(mod);
 
             TextureCacheGroup group = TextureCacheGroupManager.FindGroupForMod(packageId);
             if (group != null)
             {
                 cachePath = GetCachePathForGroup(group.GroupId);
                 hash = ComputeGroupHash(group);
+                profileTarget = "group " + group.GroupName + " [" + group.GroupId + "] requested by " + profileTarget;
             }
 
             List<RawTextureEntry> loaded;
             bool hit;
-            using (FastProfile.Scope("TextureRawCache: TryRead [" + packageId + "]"))
+            using (FastLoaderProfiler.Scope("FastLoader.TextureCache.TryRead | " + profileTarget))
             {
                 hit = TextureCacheFile.TryRead(cachePath, hash, out loaded);
             }

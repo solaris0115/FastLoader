@@ -72,7 +72,6 @@ namespace FastLoader
                     return;
                 }
 
-                bool success = false;
                 try
                 {
                     Type profilerType = FindType("RimWorldStartupProfiler.StartupProfiler");
@@ -85,7 +84,6 @@ namespace FastLoader
                             begin = (Func<string, long>)Delegate.CreateDelegate(typeof(Func<string, long>), beginMethod);
                             end = (Action<string, long>)Delegate.CreateDelegate(typeof(Action<string, long>), endMethod);
                             available = true;
-                            success = true;
                         }
                     }
                 }
@@ -96,7 +94,7 @@ namespace FastLoader
                     end = null;
                 }
 
-                initialized = success;
+                initialized = true;
             }
         }
 

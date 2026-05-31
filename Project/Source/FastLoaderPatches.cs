@@ -201,20 +201,28 @@ namespace FastLoader
             }
 
             List<RawTextureEntry> entries;
-            if (!TextureRawCache.TryLoadCacheForMod(__instance, out entries))
+            string modDescription = FastLoaderProfiler.DescribeMod(__instance);
+            using (FastLoaderProfiler.Scope("FastLoader.TextureCache.CacheDecision | " + modDescription))
             {
-                return true;
+                if (!TextureRawCache.TryLoadCacheForMod(__instance, out entries))
+                {
+                    return true;
+                }
             }
 
-            ModContentHolder<AudioClip> audioClips = AudioClipsField != null ? AudioClipsField.GetValue(__instance) as ModContentHolder<AudioClip> : null;
-            ModContentHolder<Texture2D> textures = TexturesField != null ? TexturesField.GetValue(__instance) as ModContentHolder<Texture2D> : null;
-            ModContentHolder<string> strings = StringsField != null ? StringsField.GetValue(__instance) as ModContentHolder<string> : null;
-            if (audioClips == null || textures == null || strings == null || __instance.assetBundles == null)
+            using (FastLoaderProfiler.Scope("FastLoader.TextureCache.CachedReload | " + modDescription))
             {
-                return true;
+                ModContentHolder<AudioClip> audioClips = AudioClipsField != null ? AudioClipsField.GetValue(__instance) as ModContentHolder<AudioClip> : null;
+                ModContentHolder<Texture2D> textures = TexturesField != null ? TexturesField.GetValue(__instance) as ModContentHolder<Texture2D> : null;
+                ModContentHolder<string> strings = StringsField != null ? StringsField.GetValue(__instance) as ModContentHolder<string> : null;
+                if (audioClips == null || textures == null || strings == null || __instance.assetBundles == null)
+                {
+                    return true;
+                }
+
+                ReloadContentWithCachedTextures(__instance, audioClips, textures, strings, entries, hotReload);
             }
 
-            ReloadContentWithCachedTextures(__instance, audioClips, textures, strings, entries, hotReload);
             return false;
         }
 
@@ -226,10 +234,11 @@ namespace FastLoader
             List<RawTextureEntry> cachedEntries,
             bool hotReload)
         {
+            string modDescription = FastLoaderProfiler.DescribeMod(mod);
             DeepProfiler.Start("Reload audio clips");
             try
             {
-                using (FastProfile.Scope("ReloadContentInt: vanilla audio reload"))
+                using (FastLoaderProfiler.Scope("FastLoader.TextureCache.AudioReload | " + modDescription))
                 {
                     audioClips.ReloadAll(hotReload);
                 }
@@ -242,7 +251,7 @@ namespace FastLoader
             DeepProfiler.Start("Reload textures");
             try
             {
-                using (FastProfile.Scope("ReloadContentInt: inject raw cached textures"))
+                using (FastLoaderProfiler.Scope("FastLoader.TextureCache.InjectRawTextures | " + modDescription))
                 {
                     LoadRawCachedTexturesIntoHolder(textures, cachedEntries, hotReload);
                 }
@@ -255,7 +264,7 @@ namespace FastLoader
             DeepProfiler.Start("Reload strings");
             try
             {
-                using (FastProfile.Scope("ReloadContentInt: vanilla strings reload"))
+                using (FastLoaderProfiler.Scope("FastLoader.TextureCache.StringsReload | " + modDescription))
                 {
                     strings.ReloadAll(hotReload);
                 }
@@ -268,7 +277,7 @@ namespace FastLoader
             DeepProfiler.Start("Reload asset bundles");
             try
             {
-                using (FastProfile.Scope("ReloadContentInt: vanilla assetBundles reload"))
+                using (FastLoaderProfiler.Scope("FastLoader.TextureCache.AssetBundlesReload | " + modDescription))
                 {
                     mod.assetBundles.ReloadAll(hotReload);
                 }
