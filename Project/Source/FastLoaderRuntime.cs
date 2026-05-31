@@ -51,6 +51,12 @@ namespace FastLoader
         public static ModContentPack ModContent;
         public static FastLoaderSettings Settings;
         public static FastLoaderMode Mode = FastLoaderMode.None;
+        public static FastLoaderMode LastMode = FastLoaderMode.None;
+        public static string LastStatus;
+        public static string LastStatusReason;
+        public static string LastInputHash;
+        public static int LastParsedDefCount;
+        public static double LastLoadElapsedMs;
 
         public static bool IsCacheHit
         {
@@ -355,6 +361,12 @@ namespace FastLoader
 
             FastProfile.End(status, statusReason, inputHash, parsedDefCount);
             TimeSpan elapsed = loadStartedUtc == default(DateTime) ? TimeSpan.Zero : DateTime.UtcNow - loadStartedUtc;
+            LastMode = Mode;
+            LastStatus = status;
+            LastStatusReason = statusReason;
+            LastInputHash = inputHash;
+            LastParsedDefCount = parsedDefCount;
+            LastLoadElapsedMs = elapsed.TotalMilliseconds;
             Log.Message("[FastLoader] XML cache " + status + " in " + FormatSeconds(elapsed) + ". Reason: " + (statusReason ?? string.Empty) + ". Parsed defs: " + parsedDefCount);
 
             Mode = FastLoaderMode.None;

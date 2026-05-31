@@ -15,11 +15,55 @@ namespace FastLoader
         private static Dictionary<string, List<RawTextureEntry>> loadedCaches;
         private static int cacheHitCount;
         private static int cacheMissCount;
+        private static int cacheHitEntryCount;
+        private static long cacheHitRawBytes;
         private static List<string> cacheMissList;
 
         private static string CacheRootPath
         {
             get { return Path.Combine(GenFilePaths.ConfigFolderPath, "FastLoader", "TextureCache"); }
+        }
+
+        public static int CacheHitCount
+        {
+            get { return cacheHitCount; }
+        }
+
+        public static int CacheMissCount
+        {
+            get { return cacheMissCount; }
+        }
+
+        public static int CacheHitEntryCount
+        {
+            get { return cacheHitEntryCount; }
+        }
+
+        public static long CacheHitRawBytes
+        {
+            get { return cacheHitRawBytes; }
+        }
+
+        public static int CacheFileCount
+        {
+            get
+            {
+                int fileCount;
+                long totalBytes;
+                GetCacheFileStats(out fileCount, out totalBytes);
+                return fileCount;
+            }
+        }
+
+        public static long CacheTotalBytes
+        {
+            get
+            {
+                int fileCount;
+                long totalBytes;
+                GetCacheFileStats(out fileCount, out totalBytes);
+                return totalBytes;
+            }
         }
 
         public static bool TryLoadCacheForMod(ModContentPack mod, out List<RawTextureEntry> entries)
@@ -41,6 +85,7 @@ namespace FastLoader
             if (loadedCaches != null && loadedCaches.TryGetValue(packageId, out entries))
             {
                 cacheHitCount++;
+                AddHitEntryStats(entries);
                 return entries != null && entries.Count > 0;
             }
 
@@ -80,6 +125,7 @@ namespace FastLoader
                 }
 
                 cacheHitCount++;
+                AddHitEntryStats(entries);
                 return entries != null && entries.Count > 0;
             }
 
@@ -193,6 +239,8 @@ namespace FastLoader
             loadedCaches = null;
             cacheHitCount = 0;
             cacheMissCount = 0;
+            cacheHitEntryCount = 0;
+            cacheHitRawBytes = 0L;
             cacheMissList = null;
 
             string root = CacheRootPath;
@@ -233,6 +281,8 @@ namespace FastLoader
             loadedCaches = null;
             cacheHitCount = 0;
             cacheMissCount = 0;
+            cacheHitEntryCount = 0;
+            cacheHitRawBytes = 0L;
             cacheMissList = null;
         }
 
@@ -245,15 +295,11 @@ namespace FastLoader
 
             try
             {
-                string[] files = Directory.GetFiles(CacheRootPath, "*.texcache", SearchOption.TopDirectoryOnly);
-                long totalSize = 0;
-                for (int i = 0; i < files.Length; i++)
-                {
-                    FileInfo info = new FileInfo(files[i]);
-                    totalSize += info.Length;
-                }
+                int fileCount;
+                long totalSize;
+                GetCacheFileStats(out fileCount, out totalSize);
 
-                return files.Length + " files, " + FormatSize(totalSize) + " (hits: " + cacheHitCount + ", misses: " + cacheMissCount + ")";
+                return fileCount + " files, " + FormatSize(totalSize) + " (hits: " + cacheHitCount + ", misses: " + cacheMissCount + ")";
             }
             catch
             {
@@ -407,6 +453,49 @@ namespace FastLoader
                     {
                         list.Add(entry);
                     }
+                }
+            }
+        }
+
+        private static void AddHitEntryStats(List<RawTextureEntry> entries)
+        {
+            if (entries == null)
+            {
+                return;
+            }
+
+            cacheHitEntryCount += entries.Count;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                RawTextureEntry entry = entries[i];
+                if (entry != null && entry.RawData != null)
+                {
+                    cacheHitRawBytes += entry.RawData.Length;
+                }
+            }
+        }
+
+        private static void GetCacheFileStats(out int fileCount, out long totalBytes)
+        {
+            fileCount = 0;
+            totalBytes = 0L;
+
+            if (!Directory.Exists(CacheRootPath))
+            {
+                return;
+            }
+
+            string[] files = Directory.GetFiles(CacheRootPath, "*.texcache", SearchOption.TopDirectoryOnly);
+            fileCount = files.Length;
+            for (int i = 0; i < files.Length; i++)
+            {
+                try
+                {
+                    FileInfo info = new FileInfo(files[i]);
+                    totalBytes += info.Length;
+                }
+                catch
+                {
                 }
             }
         }
