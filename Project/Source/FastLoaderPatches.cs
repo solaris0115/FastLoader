@@ -9,6 +9,44 @@ using Verse;
 
 namespace FastLoader
 {
+    [HarmonyPatch(typeof(LoadedLanguage), nameof(LoadedLanguage.LoadData))]
+    internal static class Patch_LoadedLanguage_LoadData_LanguageCache
+    {
+        private sealed class LanguageLoadState
+        {
+            public bool AlreadyLoaded;
+            public bool UsedCache;
+        }
+
+        private static bool Prefix(LoadedLanguage __instance, ref LanguageLoadState __state)
+        {
+            __state = new LanguageLoadState();
+            if (LanguageBinaryCache.IsDataLoaded(__instance))
+            {
+                __state.AlreadyLoaded = true;
+                return true;
+            }
+
+            if (LanguageBinaryCache.TryLoadDataFromCache(__instance))
+            {
+                __state.UsedCache = true;
+                return false;
+            }
+
+            return true;
+        }
+
+        private static void Postfix(LoadedLanguage __instance, LanguageLoadState __state)
+        {
+            if (__state != null && (__state.AlreadyLoaded || __state.UsedCache))
+            {
+                return;
+            }
+
+            LanguageBinaryCache.SaveFromLanguage(__instance);
+        }
+    }
+
     [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadModXML))]
     internal static class Patch_LoadModXML
     {

@@ -104,6 +104,7 @@ namespace FastLoader
         {
             DeleteXmlCache();
             DeleteResourceCache();
+            LanguageBinaryCache.DeleteAll();
 
             Log.Message("[FastLoader] All cache files cleared.");
         }

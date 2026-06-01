@@ -101,6 +101,8 @@ FastLoader는 한 번 로드된 텍스처를 다시 읽어 raw texture data로 �
 │   ├── mod_{packageid}.texcache
 │   ├── group_{groupid}.texcache
 │   └── groups.xml
+├── LanguageCache\
+│   └── language_{folderName}.flang
 └── AudioCache\                  # 예정
     └── mod_{packageid}.audiocache
 ```
@@ -121,6 +123,14 @@ FastLoader는 한 번 로드된 텍스처를 다시 읽어 raw texture data로 �
 | `TextureCache/groups.xml` | 그룹 캐시 설정 |
 
 `.texcache` 파일에는 텍스처 경로, 이름, 크기, 포맷, 필터 설정, raw texture byte 배열이 들어간다.
+
+### 언어 캐시
+
+| 파일 | 설명 |
+|---|---|
+| `LanguageCache/language_{folderName}.flang` | `Keyed` 번역 딕셔너리와 `Strings` 문자열 목록을 저장한 바이너리 캐시 |
+
+`DefInjected` 번역은 Def 인스턴스에 직접 주입되는 데이터라 현재 언어 캐시에는 포함하지 않는다. `Keyed`와 `Strings`는 Def 객체가 아니라 `LanguageDatabase.activeLanguage`의 조회용 딕셔너리로 유지된다.
 
 #### `manifest.xml`
 

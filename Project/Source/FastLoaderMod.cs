@@ -55,7 +55,7 @@ namespace FastLoader
             if (Widgets.ButtonText(resetAllRect, "Reset all caches"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear all FastLoader cache files (XML + texture)? Use the build buttons to create them again.",
+                    "Clear all FastLoader cache files (XML + texture + language)? Use the build buttons to create XML and texture caches again. Language cache will rebuild on the next load.",
                     ResetAllCachesFromSettings,
                     true));
             }
