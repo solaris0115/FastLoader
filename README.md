@@ -23,8 +23,7 @@
    또는 Steam 창작마당에서 구독한다.
 2. 모드 배열에서 Harmony 뒤에 둔다. 가능하면 Core/DLC와 Harmony 바로 아래, 다른 대형 모드들보다 위에 배치한다.
 3. 림월드를 실행한 뒤 `Options -> Mod Settings -> FastLoader`에서 캐시를 빌드한다.
-   - `Build XML cache now`
-   - `Build texture cache now`
+   - `Build all caches now`
 4. 림월드를 재시작한다.
 5. 다음 재시작부터 실행 속도가 상승한다.
 
@@ -223,11 +222,12 @@ Options -> Mod Settings -> FastLoader
 | 항목 | 설명 |
 |---|---|
 | `Enable FastLoader cache` | FastLoader 캐시 사용 여부 |
-| `Build XML cache now` | 현재 로딩에서 확보한 resolved XML을 저장 |
+| `Build all caches now` | 현재 로딩에서 확보한 XML, 언어, 텍스처 캐시를 생성 |
+| `Build XML cache now` | 현재 로딩에서 확보한 resolved XML과 언어 캐시를 저장 |
 | `Build texture cache now` | 현재 메모리에 로드된 모드 텍스처를 `.texcache`로 저장 |
 | `Reset XML cache` | XML 캐시 삭제 |
 | `Reset texture cache` | 텍스처 캐시 삭제 |
-| `Reset all caches` | XML과 텍스처 캐시 전체 삭제 |
+| `Reset all caches` | XML, 언어, 텍스처 캐시 전체 삭제 |
 
 ---
 

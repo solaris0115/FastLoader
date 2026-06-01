@@ -102,6 +102,20 @@ namespace FastLoader
             return DataIsLoadedField != null && language != null && (bool)DataIsLoadedField.GetValue(language);
         }
 
+        public static int BuildFromLoadedLanguages()
+        {
+            if (!IsEnabled())
+            {
+                return 0;
+            }
+
+            int written = 0;
+            HashSet<string> seen = new HashSet<string>(StringComparer.Ordinal);
+            written += BuildOne(LanguageDatabase.activeLanguage, seen);
+            written += BuildOne(LanguageDatabase.defaultLanguage, seen);
+            return written;
+        }
+
         public static void SaveFromLanguage(LoadedLanguage language)
         {
             if (!IsEnabled() || language == null)
@@ -122,6 +136,24 @@ namespace FastLoader
             {
                 Log.Warning("[FastLoader] Failed to write language cache for " + Describe(language) + ".\n" + ex);
             }
+        }
+
+        private static int BuildOne(LoadedLanguage language, HashSet<string> seen)
+        {
+            if (language == null)
+            {
+                return 0;
+            }
+
+            string folderName = language.folderName ?? string.Empty;
+            if (!seen.Add(folderName))
+            {
+                return 0;
+            }
+
+            language.LoadData();
+            SaveFromLanguage(language);
+            return 1;
         }
 
         private static void LoadDataWithCachedKeyedAndStrings(LoadedLanguage language, LanguageCachePayload payload)

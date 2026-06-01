@@ -55,7 +55,7 @@ namespace FastLoader
             if (Widgets.ButtonText(resetAllRect, "Reset all caches"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear all FastLoader cache files (XML + texture + language)? Use the build buttons to create XML and texture caches again. Language cache will rebuild on the next load.",
+                    "Clear all FastLoader cache files (XML + texture + language)? Use the build buttons to create them again.",
                     ResetAllCachesFromSettings,
                     true));
             }
@@ -78,9 +78,17 @@ namespace FastLoader
 
             listing.Gap(8f);
             Rect buildRow = listing.GetRect(30f);
-            float buildButtonWidth = Mathf.Min(200f, (buildRow.width - 8f) * 0.5f);
-            Rect buildTexRect = new Rect(buildRow.x, buildRow.y, buildButtonWidth, buildRow.height);
-            Rect buildXmlRect = new Rect(buildTexRect.xMax + 8f, buildRow.y, buildButtonWidth, buildRow.height);
+            float buildButtonWidth = Mathf.Min(190f, (buildRow.width - gap * 2f) / 3f);
+            Rect buildAllRect = new Rect(buildRow.x, buildRow.y, buildButtonWidth, buildRow.height);
+            Rect buildTexRect = new Rect(buildAllRect.xMax + gap, buildRow.y, buildButtonWidth, buildRow.height);
+            Rect buildXmlRect = new Rect(buildTexRect.xMax + gap, buildRow.y, buildButtonWidth, buildRow.height);
+            if (Widgets.ButtonText(buildAllRect, "Build all caches now"))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "Build XML, language, and texture caches from the current loaded data?",
+                    BuildAllCachesFromSettings,
+                    true));
+            }
             if (Widgets.ButtonText(buildTexRect, "Build texture cache now"))
             {
                 Find.WindowStack.Add(new TextureCacheBuildWindow());
@@ -88,7 +96,7 @@ namespace FastLoader
             if (Widgets.ButtonText(buildXmlRect, "Build XML cache now"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Write XML cache from the current resolved defs in memory?",
+                    "Write XML and language caches from the current loaded data?",
                     BuildXmlCacheFromMemory,
                     true));
             }
@@ -179,20 +187,39 @@ namespace FastLoader
         {
             try
             {
-                bool success = FastLoaderRuntime.WriteXmlCacheFromCurrentSnapshot();
-                if (success)
+                FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
+                if (result.XmlCacheBuilt)
                 {
-                    Messages.Message("XML cache built from current resolved defs.", MessageTypeDefOf.TaskCompletion, false);
+                    Messages.Message("XML and language caches built. Languages: " + result.LanguageCachesBuilt + ".", MessageTypeDefOf.TaskCompletion, false);
+                }
+                else if (result.LanguageCachesBuilt > 0)
+                {
+                    Messages.Message("Language cache built. XML cache is not available yet.", MessageTypeDefOf.TaskCompletion, false);
                 }
                 else
                 {
-                    Messages.Message("XML cache not available yet. Load the game first, then try again.", MessageTypeDefOf.RejectInput, false);
+                    Messages.Message("XML/language cache not available yet. Load the game first, then try again.", MessageTypeDefOf.RejectInput, false);
                 }
             }
             catch (Exception ex)
             {
-                Log.Error("[FastLoader] Failed to build XML cache from memory.\n" + ex);
-                Messages.Message("Failed to build XML cache. See log for details.", MessageTypeDefOf.RejectInput, false);
+                Log.Error("[FastLoader] Failed to build XML/language cache from memory.\n" + ex);
+                Messages.Message("Failed to build XML/language cache. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+
+        private static void BuildAllCachesFromSettings()
+        {
+            try
+            {
+                FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
+                Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);
+                Find.WindowStack.Add(new TextureCacheBuildWindow());
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to start Build all caches.\n" + ex);
+                Messages.Message("Failed to build FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
             }
         }
 
