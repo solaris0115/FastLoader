@@ -29,6 +29,8 @@ namespace FastLoader
     {
         public string InputHash;
         public DateTime CreatedUtc;
+        public string ActiveLanguage;
+        public string DefaultLanguage;
         public List<FastLoaderCacheStateMod> Mods = new List<FastLoaderCacheStateMod>();
         public List<FastLoaderCacheStageState> Stages = new List<FastLoaderCacheStageState>();
 
@@ -62,7 +64,7 @@ namespace FastLoader
 
     internal static class FastLoaderCacheState
     {
-        private const string FormatVersion = "2";
+        private const string FormatVersion = "3";
         private static readonly FieldInfo PublishedFileIdField =
             typeof(ModMetaData).GetField("publishedFileIdInt", BindingFlags.Instance | BindingFlags.NonPublic);
         private static readonly FieldInfo PublishedFileIdValueField =
@@ -138,6 +140,8 @@ namespace FastLoader
             FastLoaderCacheStateData data = new FastLoaderCacheStateData();
             data.InputHash = FastLoaderHasher.ComputeFastModListHash();
             data.CreatedUtc = DateTime.UtcNow;
+            data.ActiveLanguage = GetLanguageFolder(LanguageDatabase.activeLanguage);
+            data.DefaultLanguage = GetLanguageFolder(LanguageDatabase.defaultLanguage);
 
             List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
             for (int i = 0; i < mods.Count; i++)
@@ -197,6 +201,8 @@ namespace FastLoader
             root.SetAttribute("formatVersion", FormatVersion);
             AppendElement(document, root, "inputHash", data.InputHash ?? string.Empty);
             AppendElement(document, root, "createdUtc", data.CreatedUtc.ToString("o"));
+            AppendElement(document, root, "activeLanguage", data.ActiveLanguage ?? string.Empty);
+            AppendElement(document, root, "defaultLanguage", data.DefaultLanguage ?? string.Empty);
 
             XmlElement stages = document.CreateElement("stages");
             root.AppendChild(stages);
@@ -259,7 +265,7 @@ namespace FastLoader
             }
 
             string formatVersion = root.GetAttribute("formatVersion");
-            if (formatVersion != FormatVersion && formatVersion != "1")
+            if (formatVersion != FormatVersion && formatVersion != "2" && formatVersion != "1")
             {
                 return null;
             }
@@ -273,6 +279,8 @@ namespace FastLoader
             }
 
             data.CreatedUtc = createdUtc.ToUniversalTime();
+            data.ActiveLanguage = ChildText(root, "activeLanguage");
+            data.DefaultLanguage = ChildText(root, "defaultLanguage");
             if (formatVersion == "1")
             {
                 data.Stages.Add(new FastLoaderCacheStageState
@@ -290,6 +298,21 @@ namespace FastLoader
 
             ReadMods(root, data);
             return data;
+        }
+
+        public static string GetCurrentActiveLanguage()
+        {
+            return GetLanguageFolder(LanguageDatabase.activeLanguage);
+        }
+
+        public static string GetCurrentDefaultLanguage()
+        {
+            return GetLanguageFolder(LanguageDatabase.defaultLanguage);
+        }
+
+        private static string GetLanguageFolder(LoadedLanguage language)
+        {
+            return language != null ? language.folderName ?? string.Empty : string.Empty;
         }
 
         private static void ReadStages(XmlElement root, FastLoaderCacheStateData data)

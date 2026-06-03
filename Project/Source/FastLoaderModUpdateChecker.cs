@@ -84,6 +84,7 @@ namespace FastLoader
 
             List<FastLoaderCacheStateMod> workshopMods = GetWorkshopMods(state);
             int localModCount = state.Mods != null ? Math.Max(0, state.Mods.Count - workshopMods.Count) : 0;
+            List<string> earlyReasons = BuildLanguageReasons(state);
 
             string currentHash;
             try
@@ -102,6 +103,7 @@ namespace FastLoader
                 {
                     WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
                     result.WorkshopModCount = workshopMods.Count;
+                    AddReasons(result, earlyReasons);
                     result.Reasons.Add("Active mod list/order changed since the cache was built.");
                     result.Signature = BuildSignature(state, result);
                     return result;
@@ -115,6 +117,7 @@ namespace FastLoader
                 {
                     WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
                     result.WorkshopModCount = workshopMods.Count;
+                    AddReasons(result, earlyReasons);
                     result.Reasons.Add("XML cache was not used: " + (FastLoaderRuntime.LastStatusReason ?? "unknown reason"));
                     result.Signature = BuildSignature(state, result);
                     return result;
@@ -124,12 +127,25 @@ namespace FastLoader
 
             if (workshopMods.Count == 0)
             {
+                if (earlyReasons.Count > 0)
+                {
+                    runningTask = Task.Run(delegate
+                    {
+                        WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
+                        result.WorkshopModCount = workshopMods.Count;
+                        AddReasons(result, earlyReasons);
+                        result.Signature = BuildSignature(state, result);
+                        return result;
+                    });
+                    return;
+                }
+
                 Log.Message("[FastLoader] Workshop update check skipped because no Steam Workshop mods were recorded. Local/untracked mods: " + localModCount);
                 return;
             }
 
             Log.Message("[FastLoader] Workshop update check started. Workshop mods: " + workshopMods.Count + ", local/untracked mods: " + localModCount + ", batchSize=" + BatchSize + ", maxParallel=" + MaxParallelRequests);
-            runningTask = Task.Run(delegate { return CheckWorkshopUpdates(state, workshopMods, localModCount); });
+            runningTask = Task.Run(delegate { return CheckWorkshopUpdates(state, workshopMods, localModCount, earlyReasons); });
         }
 
         public static void PollUi()
@@ -192,11 +208,12 @@ namespace FastLoader
             Log.Message("[FastLoader] Workshop update notice ignored for current cache state.");
         }
 
-        private static WorkshopUpdateCheckResult CheckWorkshopUpdates(FastLoaderCacheStateData state, List<FastLoaderCacheStateMod> workshopMods, int localModCount)
+        private static WorkshopUpdateCheckResult CheckWorkshopUpdates(FastLoaderCacheStateData state, List<FastLoaderCacheStateMod> workshopMods, int localModCount, List<string> earlyReasons)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
             WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
             result.WorkshopModCount = workshopMods.Count;
+            AddReasons(result, earlyReasons);
 
             Dictionary<string, List<FastLoaderCacheStateMod>> modsById = new Dictionary<string, List<FastLoaderCacheStateMod>>(StringComparer.Ordinal);
             List<string> ids = new List<string>();
@@ -311,6 +328,46 @@ namespace FastLoader
             result.ReferenceUtc = state.GetUpdateReferenceUtc();
             result.LocalModCount = localModCount;
             return result;
+        }
+
+        private static List<string> BuildLanguageReasons(FastLoaderCacheStateData state)
+        {
+            List<string> reasons = new List<string>();
+            if (state == null)
+            {
+                return reasons;
+            }
+
+            string active = FastLoaderCacheState.GetCurrentActiveLanguage();
+            string cachedActive = state.ActiveLanguage ?? string.Empty;
+            if (!string.IsNullOrEmpty(cachedActive) &&
+                !string.Equals(cachedActive, active ?? string.Empty, StringComparison.Ordinal))
+            {
+                reasons.Add("Active language changed since the language cache was built: " + cachedActive + " -> " + (active ?? string.Empty) + ".");
+            }
+
+            string defaultLanguage = FastLoaderCacheState.GetCurrentDefaultLanguage();
+            string cachedDefault = state.DefaultLanguage ?? string.Empty;
+            if (!string.IsNullOrEmpty(cachedDefault) &&
+                !string.Equals(cachedDefault, defaultLanguage ?? string.Empty, StringComparison.Ordinal))
+            {
+                reasons.Add("Default language changed since the language cache was built: " + cachedDefault + " -> " + (defaultLanguage ?? string.Empty) + ".");
+            }
+
+            return reasons;
+        }
+
+        private static void AddReasons(WorkshopUpdateCheckResult result, List<string> reasons)
+        {
+            if (result == null || reasons == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < reasons.Count; i++)
+            {
+                result.Reasons.Add(reasons[i]);
+            }
         }
 
         private static void LogCheckSummary(WorkshopUpdateCheckResult result)
