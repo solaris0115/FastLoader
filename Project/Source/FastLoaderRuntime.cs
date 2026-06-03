@@ -45,6 +45,7 @@ namespace FastLoader
         private static int parsedDefCount;
         private static DateTime loadStartedUtc;
         private static bool cacheFallbackActive;
+        private static int manualBuildDepth;
         private static readonly CacheEntry[] EmptyEntries = new CacheEntry[0];
         private static readonly FieldInfo XmlInheritanceResolvedNodesField = typeof(XmlInheritance).GetField("resolvedNodes", BindingFlags.NonPublic | BindingFlags.Static);
 
@@ -61,6 +62,11 @@ namespace FastLoader
         public static bool IsCacheFallbackActive
         {
             get { return cacheFallbackActive; }
+        }
+
+        public static bool IsManualBuildActive
+        {
+            get { return manualBuildDepth > 0; }
         }
 
         public static bool IsCacheHit
@@ -86,9 +92,34 @@ namespace FastLoader
             get { return loadedCache != null ? loadedCache.ResolvedDefs : null; }
         }
 
+        public static IDisposable ManualBuildScope()
+        {
+            manualBuildDepth++;
+            return new ManualBuildScopeHandle();
+        }
+
         private static string RootPath
         {
             get { return Path.Combine(GenFilePaths.ConfigFolderPath, "FastLoader"); }
+        }
+
+        private sealed class ManualBuildScopeHandle : IDisposable
+        {
+            private bool disposed;
+
+            public void Dispose()
+            {
+                if (disposed)
+                {
+                    return;
+                }
+
+                disposed = true;
+                if (manualBuildDepth > 0)
+                {
+                    manualBuildDepth--;
+                }
+            }
         }
 
         private static string CachePath
@@ -150,14 +181,6 @@ namespace FastLoader
             loadStartedUtc = DateTime.UtcNow;
             FastProfile.Begin();
 
-            if (Settings != null && !Settings.CacheEnabled)
-            {
-                Mode = FastLoaderMode.Disabled;
-                statusReason = "disabled by settings; profiling vanilla XML routine";
-                FastProfile.SetStatus("DISABLED", statusReason, null);
-                return;
-            }
-
             if (hotReload)
             {
                 Mode = FastLoaderMode.Disabled;
@@ -171,6 +194,14 @@ namespace FastLoader
                 using (FastProfile.Scope("Manifest/mod loadout hash"))
                 {
                     inputHash = FastLoaderHasher.ComputeFastModListHash();
+                }
+
+                if (Settings != null && !Settings.CacheEnabled)
+                {
+                    Mode = FastLoaderMode.Disabled;
+                    statusReason = "disabled by settings; profiling vanilla XML routine";
+                    FastProfile.SetStatus("DISABLED", statusReason, inputHash);
+                    return;
                 }
 
                 string missReason;

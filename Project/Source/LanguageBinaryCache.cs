@@ -112,7 +112,7 @@ namespace FastLoader
 
         public static int BuildFromLoadedLanguages()
         {
-            if (!IsEnabled())
+            if (!IsBuildEnabled())
             {
                 return 0;
             }
@@ -126,7 +126,7 @@ namespace FastLoader
 
         public static void SaveFromLanguage(LoadedLanguage language)
         {
-            if (!IsEnabled() || language == null)
+            if (!IsBuildEnabled() || language == null)
             {
                 return;
             }
@@ -340,6 +340,14 @@ namespace FastLoader
         {
             return !FastLoaderRuntime.IsCacheFallbackActive &&
                 (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
+        }
+
+        private static bool IsBuildEnabled()
+        {
+            return !FastLoaderRuntime.IsCacheFallbackActive &&
+                (FastLoaderRuntime.IsManualBuildActive ||
+                 FastLoaderRuntime.Settings == null ||
+                 FastLoaderRuntime.Settings.CacheEnabled);
         }
 
         private static string ComputeLanguageHash(LoadedLanguage language)
