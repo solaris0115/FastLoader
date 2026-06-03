@@ -24,13 +24,19 @@ namespace FastLoader
         {
             try
             {
+                string profilerName = NormalizeStartupProfilerScope(name);
+                if (profilerName == null)
+                {
+                    return 0L;
+                }
+
                 EnsureInitialized();
                 if (!available || begin == null)
                 {
                     return 0L;
                 }
 
-                return begin(name);
+                return begin(profilerName);
             }
             catch
             {
@@ -47,15 +53,71 @@ namespace FastLoader
 
             try
             {
+                string profilerName = NormalizeStartupProfilerScope(name);
+                if (profilerName == null)
+                {
+                    return;
+                }
+
                 EnsureInitialized();
                 if (available && end != null)
                 {
-                    end(name, startTimestamp);
+                    end(profilerName, startTimestamp);
                 }
             }
             catch
             {
             }
+        }
+
+        private static string NormalizeStartupProfilerScope(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return name;
+            }
+
+            if (!name.StartsWith("FastLoader.", StringComparison.Ordinal))
+            {
+                return name;
+            }
+
+            if (name.StartsWith("FastLoader.LanguageCache.TryRead", StringComparison.Ordinal))
+            {
+                return "FastLoader.LanguageCache.TryRead";
+            }
+
+            if (name.StartsWith("FastLoader.LanguageCache.Apply", StringComparison.Ordinal))
+            {
+                return "FastLoader.LanguageCache.Apply";
+            }
+
+            if (name.StartsWith("FastLoader.DefInjectedCache.TryRead", StringComparison.Ordinal))
+            {
+                return "FastLoader.DefInjectedCache.TryRead";
+            }
+
+            if (name.StartsWith("FastLoader.DefInjected.FastBefore", StringComparison.Ordinal))
+            {
+                return "FastLoader.DefInjected.FastBefore";
+            }
+
+            if (name.StartsWith("FastLoader.DefInjected.FastAfter", StringComparison.Ordinal))
+            {
+                return "FastLoader.DefInjected.FastAfter";
+            }
+
+            if (name.StartsWith("FastLoader.TextureCache.CachedReload", StringComparison.Ordinal))
+            {
+                return "FastLoader.TextureCache.CachedReload";
+            }
+
+            if (name.StartsWith("FastLoader.StaticAtlasCache.TryRestore", StringComparison.Ordinal))
+            {
+                return "FastLoader.StaticAtlasCache.TryRestore";
+            }
+
+            return null;
         }
 
         private static void EnsureInitialized()
