@@ -29,6 +29,24 @@ namespace FastLoader
         }
     }
 
+    [HarmonyPatch(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_BeforeImpliedDefs))]
+    internal static class Patch_LoadedLanguage_InjectBefore_FastDefInjected
+    {
+        private static bool Prefix(LoadedLanguage __instance)
+        {
+            return !FastDefInjectedApplier.TryInjectBefore(__instance);
+        }
+    }
+
+    [HarmonyPatch(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_AfterImpliedDefs))]
+    internal static class Patch_LoadedLanguage_InjectAfter_FastDefInjected
+    {
+        private static bool Prefix(LoadedLanguage __instance)
+        {
+            return !FastDefInjectedApplier.TryInjectAfter(__instance);
+        }
+    }
+
     [HarmonyPatch(typeof(MainMenuDrawer), nameof(MainMenuDrawer.Init))]
     internal static class Patch_MainMenuDrawer_Init_FastLoaderCommandBridge
     {
