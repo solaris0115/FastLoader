@@ -38,6 +38,7 @@ namespace FastLoader
             if (!completionHandled && !session.Cancelled)
             {
                 completionHandled = true;
+                FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, session.SavedTextureCount);
                 Messages.Message("Texture cache built: " + session.SavedTextureCount + " textures saved.", MessageTypeDefOf.TaskCompletion, false);
                 Close();
             }

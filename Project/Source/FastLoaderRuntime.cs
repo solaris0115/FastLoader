@@ -106,6 +106,7 @@ namespace FastLoader
             DeleteResourceCache();
             LanguageBinaryCache.DeleteAll();
             StaticAtlasCache.DeleteAll();
+            FastLoaderCacheState.Delete();
 
             Log.Message("[FastLoader] All cache files cleared.");
         }

@@ -53,6 +53,16 @@ namespace FastLoader
         private static void Postfix()
         {
             FastLoaderCommandBridge.ProcessCommandLineBuildRequests();
+            FastLoaderModUpdateChecker.StartAfterMainMenu();
+        }
+    }
+
+    [HarmonyPatch(typeof(Root), nameof(Root.Update))]
+    internal static class Patch_Root_Update_FastLoaderModUpdateChecker
+    {
+        private static void Postfix()
+        {
+            FastLoaderModUpdateChecker.PollUi();
         }
     }
 

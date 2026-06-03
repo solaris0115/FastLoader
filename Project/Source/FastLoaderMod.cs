@@ -55,7 +55,7 @@ namespace FastLoader
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                     "Build XML, language, texture, and atlas caches from the current loaded data?",
-                    BuildAllCachesFromSettings,
+                    FastLoaderCacheUiActions.StartBuildAllCaches,
                     true));
             }
 
@@ -63,7 +63,7 @@ namespace FastLoader
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                     "Clear all FastLoader cache files (XML + language + texture + atlas)? Use Build all caches now to create them again.",
-                    ResetAllCachesFromSettings,
+                    FastLoaderCacheUiActions.ResetAllCaches,
                     true));
             }
 

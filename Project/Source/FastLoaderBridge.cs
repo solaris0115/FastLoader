@@ -28,6 +28,8 @@ namespace FastLoader
             FastLoaderBuildResult result = new FastLoaderBuildResult();
             result.XmlCacheBuilt = FastLoaderRuntime.WriteXmlCacheFromCurrentSnapshot();
             result.LanguageCachesBuilt = LanguageBinaryCache.BuildFromLoadedLanguages();
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Xml, result.XmlCacheBuilt, result.XmlCacheBuilt ? FastLoaderRuntime.LastParsedDefCount : 0);
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Language, result.LanguageCachesBuilt > 0, result.LanguageCachesBuilt);
             Log.Message("[FastLoader] BuildXmlAndLanguageCaches completed: " + result);
             return result;
         }
@@ -35,6 +37,7 @@ namespace FastLoader
         public static int BuildLanguageCache()
         {
             int count = LanguageBinaryCache.BuildFromLoadedLanguages();
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Language, count > 0, count);
             Log.Message("[FastLoader] BuildLanguageCache completed: languages=" + count);
             return count;
         }
@@ -42,6 +45,7 @@ namespace FastLoader
         public static int BuildTextureCache()
         {
             int textures = TextureRawCache.RebuildFromLoadedMods();
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, textures);
             Log.Message("[FastLoader] BuildTextureCache completed: textures=" + textures);
             return textures;
         }
@@ -49,6 +53,7 @@ namespace FastLoader
         public static int BuildStaticAtlasCache()
         {
             int atlases = StaticAtlasCache.BuildFromCurrentAtlases();
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, true, atlases);
             Log.Message("[FastLoader] BuildStaticAtlasCache completed: atlases=" + atlases);
             return atlases;
         }
@@ -58,6 +63,8 @@ namespace FastLoader
             FastLoaderBuildResult result = BuildXmlAndLanguageCaches();
             result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
             result.AtlasesSaved = StaticAtlasCache.BuildFromCurrentAtlases();
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, result.TexturesSaved);
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, true, result.AtlasesSaved);
             Log.Message("[FastLoader] BuildAllCaches completed: " + result);
             return result;
         }

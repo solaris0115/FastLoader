@@ -1,0 +1,607 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Net;
+using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using RimWorld;
+using UnityEngine;
+using Verse;
+
+namespace FastLoader
+{
+    internal sealed class WorkshopUpdatedMod
+    {
+        public string Name;
+        public string PackageId;
+        public string WorkshopId;
+        public DateTime UpdatedUtc;
+    }
+
+    internal sealed class WorkshopUpdateCheckResult
+    {
+        public bool Failed;
+        public string FailureReason;
+        public DateTime ReferenceUtc;
+        public double ElapsedMs;
+        public int WorkshopModCount;
+        public int LocalModCount;
+        public int BatchCount;
+        public int FailedBatchCount;
+        public int MissingRemoteCount;
+        public string Signature;
+        public List<string> FailedBatchMessages = new List<string>();
+        public List<WorkshopUpdatedMod> UpdatedMods = new List<WorkshopUpdatedMod>();
+    }
+
+    internal static class FastLoaderModUpdateChecker
+    {
+        private const int BatchSize = 50;
+        private const int MaxParallelRequests = 4;
+        private const int RequestTimeoutMs = 8000;
+        private const string Endpoint = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/";
+
+        private static readonly object SyncRoot = new object();
+        private static Task<WorkshopUpdateCheckResult> runningTask;
+        private static bool started;
+        private static bool completed;
+        private static bool promptShown;
+
+        public static void StartAfterMainMenu()
+        {
+            lock (SyncRoot)
+            {
+                if (started)
+                {
+                    return;
+                }
+
+                started = true;
+            }
+
+            if (FastLoaderRuntime.Settings != null && !FastLoaderRuntime.Settings.CacheEnabled)
+            {
+                return;
+            }
+
+            if (FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit)
+            {
+                return;
+            }
+
+            FastLoaderCacheStateData state;
+            if (!FastLoaderCacheState.TryRead(out state))
+            {
+                Log.Message("[FastLoader] Workshop update check skipped because cache state is missing.");
+                return;
+            }
+
+            string currentHash;
+            try
+            {
+                currentHash = FastLoaderHasher.ComputeFastModListHash();
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FastLoader] Workshop update check skipped because current mod list hash failed.\n" + ex);
+                return;
+            }
+
+            if (!string.Equals(state.InputHash, currentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Message("[FastLoader] Workshop update check skipped because mod list changed since cache build.");
+                return;
+            }
+
+            List<FastLoaderCacheStateMod> workshopMods = GetWorkshopMods(state);
+            int localModCount = state.Mods != null ? Math.Max(0, state.Mods.Count - workshopMods.Count) : 0;
+            if (workshopMods.Count == 0)
+            {
+                Log.Message("[FastLoader] Workshop update check skipped because no Steam Workshop mods were recorded. Local/untracked mods: " + localModCount);
+                return;
+            }
+
+            Log.Message("[FastLoader] Workshop update check started. Workshop mods: " + workshopMods.Count + ", local/untracked mods: " + localModCount + ", batchSize=" + BatchSize + ", maxParallel=" + MaxParallelRequests);
+            runningTask = Task.Run(delegate { return CheckWorkshopUpdates(state, workshopMods, localModCount); });
+        }
+
+        public static void PollUi()
+        {
+            Task<WorkshopUpdateCheckResult> task = runningTask;
+            if (completed || task == null || !task.IsCompleted)
+            {
+                return;
+            }
+
+            completed = true;
+            WorkshopUpdateCheckResult result;
+            try
+            {
+                result = task.Result;
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FastLoader] Workshop update check failed. Cache remains usable.\n" + ex);
+                return;
+            }
+
+            if (result == null)
+            {
+                return;
+            }
+
+            LogCheckSummary(result);
+            if (result.Failed)
+            {
+                Log.Warning("[FastLoader] Workshop update check failed. Cache remains usable. " + (result.FailureReason ?? string.Empty));
+                return;
+            }
+
+            if (result.UpdatedMods.Count == 0)
+            {
+                return;
+            }
+
+            if (FastLoaderRuntime.Settings != null &&
+                !string.IsNullOrEmpty(result.Signature) &&
+                string.Equals(FastLoaderRuntime.Settings.IgnoredWorkshopUpdateSignature, result.Signature, StringComparison.Ordinal))
+            {
+                Log.Message("[FastLoader] Workshop update notice suppressed by previous Continue choice.");
+                return;
+            }
+
+            if (promptShown)
+            {
+                return;
+            }
+
+            promptShown = true;
+            Find.WindowStack.Add(new FastLoaderModUpdateDecisionWindow(result));
+        }
+
+        public static void IgnoreCurrentResult(WorkshopUpdateCheckResult result)
+        {
+            if (result == null || string.IsNullOrEmpty(result.Signature) || FastLoaderRuntime.Settings == null)
+            {
+                return;
+            }
+
+            FastLoaderRuntime.Settings.IgnoredWorkshopUpdateSignature = result.Signature;
+            FastLoaderRuntime.Settings.Write();
+            Log.Message("[FastLoader] Workshop update notice ignored for current cache state.");
+        }
+
+        private static WorkshopUpdateCheckResult CheckWorkshopUpdates(FastLoaderCacheStateData state, List<FastLoaderCacheStateMod> workshopMods, int localModCount)
+        {
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            WorkshopUpdateCheckResult result = new WorkshopUpdateCheckResult();
+            result.ReferenceUtc = state.GetUpdateReferenceUtc();
+            result.WorkshopModCount = workshopMods.Count;
+            result.LocalModCount = localModCount;
+
+            Dictionary<string, List<FastLoaderCacheStateMod>> modsById = new Dictionary<string, List<FastLoaderCacheStateMod>>(StringComparer.Ordinal);
+            List<string> ids = new List<string>();
+            for (int i = 0; i < workshopMods.Count; i++)
+            {
+                FastLoaderCacheStateMod mod = workshopMods[i];
+                List<FastLoaderCacheStateMod> list;
+                if (!modsById.TryGetValue(mod.WorkshopId, out list))
+                {
+                    list = new List<FastLoaderCacheStateMod>();
+                    modsById.Add(mod.WorkshopId, list);
+                    ids.Add(mod.WorkshopId);
+                }
+
+                list.Add(mod);
+            }
+
+            List<List<string>> batches = SplitBatches(ids, BatchSize);
+            result.BatchCount = batches.Count;
+            Dictionary<string, long> remoteTimes = new Dictionary<string, long>(StringComparer.Ordinal);
+            object resultLock = new object();
+
+            Parallel.ForEach(
+                batches,
+                new ParallelOptions { MaxDegreeOfParallelism = MaxParallelRequests },
+                delegate(List<string> batch)
+                {
+                    try
+                    {
+                        Dictionary<string, long> batchResult = FetchBatch(batch);
+                        lock (resultLock)
+                        {
+                            foreach (KeyValuePair<string, long> kvp in batchResult)
+                            {
+                                remoteTimes[kvp.Key] = kvp.Value;
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        lock (resultLock)
+                        {
+                            result.FailedBatchCount++;
+                            result.FailedBatchMessages.Add("batch " + DescribeBatch(batch) + ": " + ex.GetBaseException().Message);
+                        }
+                    }
+                });
+
+            if (result.FailedBatchCount >= result.BatchCount)
+            {
+                result.Failed = true;
+                result.FailureReason = "all Steam request batches failed";
+                result.ElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+                return result;
+            }
+
+            for (int i = 0; i < ids.Count; i++)
+            {
+                string id = ids[i];
+                long updatedUnix;
+                if (!remoteTimes.TryGetValue(id, out updatedUnix) || updatedUnix <= 0L)
+                {
+                    result.MissingRemoteCount++;
+                    continue;
+                }
+
+                DateTime updatedUtc = UnixSecondsToUtc(updatedUnix);
+                if (updatedUtc <= result.ReferenceUtc)
+                {
+                    continue;
+                }
+
+                List<FastLoaderCacheStateMod> mods = modsById[id];
+                for (int j = 0; j < mods.Count; j++)
+                {
+                    FastLoaderCacheStateMod mod = mods[j];
+                    result.UpdatedMods.Add(new WorkshopUpdatedMod
+                    {
+                        Name = mod.Name ?? mod.PackageId ?? id,
+                        PackageId = mod.PackageId ?? string.Empty,
+                        WorkshopId = id,
+                        UpdatedUtc = updatedUtc
+                    });
+                }
+            }
+
+            result.Signature = BuildSignature(state, result);
+            result.ElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+            return result;
+        }
+
+        private static void LogCheckSummary(WorkshopUpdateCheckResult result)
+        {
+            Log.Message("[FastLoader] Workshop update check completed in " + FormatSeconds(result.ElapsedMs) +
+                ". workshopMods=" + result.WorkshopModCount +
+                ", localOrUntrackedMods=" + result.LocalModCount +
+                ", batches=" + result.BatchCount +
+                ", failedBatches=" + result.FailedBatchCount +
+                ", missingRemote=" + result.MissingRemoteCount +
+                ", updatedMods=" + result.UpdatedMods.Count);
+
+            for (int i = 0; i < result.FailedBatchMessages.Count; i++)
+            {
+                Log.Warning("[FastLoader] Workshop update check partial failure: " + result.FailedBatchMessages[i]);
+            }
+        }
+
+        private static Dictionary<string, long> FetchBatch(List<string> ids)
+        {
+            ServicePointManager.SecurityProtocol |= SecurityProtocolType.Tls12;
+            string body = BuildFormBody(ids);
+            using (TimeoutWebClient client = new TimeoutWebClient(RequestTimeoutMs))
+            {
+                client.Headers[HttpRequestHeader.ContentType] = "application/x-www-form-urlencoded";
+                string response = client.UploadString(Endpoint, "POST", body);
+                return ParseUpdateTimes(response);
+            }
+        }
+
+        private static string BuildFormBody(List<string> ids)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append("itemcount=");
+            builder.Append(ids.Count);
+            for (int i = 0; i < ids.Count; i++)
+            {
+                builder.Append("&publishedfileids%5B");
+                builder.Append(i);
+                builder.Append("%5D=");
+                builder.Append(Uri.EscapeDataString(ids[i]));
+            }
+
+            return builder.ToString();
+        }
+
+        private static Dictionary<string, long> ParseUpdateTimes(string json)
+        {
+            Dictionary<string, long> result = new Dictionary<string, long>(StringComparer.Ordinal);
+            if (string.IsNullOrEmpty(json))
+            {
+                return result;
+            }
+
+            MatchCollection ids = Regex.Matches(json, "\"publishedfileid\"\\s*:\\s*\"(?<id>\\d+)\"", RegexOptions.CultureInvariant);
+            for (int i = 0; i < ids.Count; i++)
+            {
+                Match idMatch = ids[i];
+                int start = idMatch.Index;
+                int end = i + 1 < ids.Count ? ids[i + 1].Index : json.Length;
+                string segment = json.Substring(start, end - start);
+                Match timeMatch = Regex.Match(segment, "\"time_updated\"\\s*:\\s*(?<time>\\d+)", RegexOptions.CultureInvariant);
+                if (!timeMatch.Success)
+                {
+                    continue;
+                }
+
+                long unix;
+                if (long.TryParse(timeMatch.Groups["time"].Value, out unix))
+                {
+                    result[idMatch.Groups["id"].Value] = unix;
+                }
+            }
+
+            return result;
+        }
+
+        private static List<FastLoaderCacheStateMod> GetWorkshopMods(FastLoaderCacheStateData state)
+        {
+            List<FastLoaderCacheStateMod> result = new List<FastLoaderCacheStateMod>();
+            if (state == null || state.Mods == null)
+            {
+                return result;
+            }
+
+            for (int i = 0; i < state.Mods.Count; i++)
+            {
+                FastLoaderCacheStateMod mod = state.Mods[i];
+                if (mod != null && IsUnsignedInteger(mod.WorkshopId))
+                {
+                    result.Add(mod);
+                }
+            }
+
+            return result;
+        }
+
+        private static List<List<string>> SplitBatches(List<string> ids, int batchSize)
+        {
+            List<List<string>> result = new List<List<string>>();
+            for (int i = 0; i < ids.Count; i += batchSize)
+            {
+                int count = Math.Min(batchSize, ids.Count - i);
+                List<string> batch = new List<string>(count);
+                for (int j = 0; j < count; j++)
+                {
+                    batch.Add(ids[i + j]);
+                }
+
+                result.Add(batch);
+            }
+
+            return result;
+        }
+
+        private static string BuildSignature(FastLoaderCacheStateData state, WorkshopUpdateCheckResult result)
+        {
+            StringBuilder builder = new StringBuilder();
+            builder.Append(state.InputHash ?? string.Empty);
+            builder.Append('|');
+            builder.Append(state.GetUpdateReferenceUtc().Ticks);
+            for (int i = 0; i < result.UpdatedMods.Count; i++)
+            {
+                WorkshopUpdatedMod mod = result.UpdatedMods[i];
+                builder.Append('|');
+                builder.Append(mod.WorkshopId ?? string.Empty);
+                builder.Append(':');
+                builder.Append(mod.UpdatedUtc.Ticks);
+            }
+
+            return builder.ToString();
+        }
+
+        private static string DescribeBatch(List<string> batch)
+        {
+            if (batch == null || batch.Count == 0)
+            {
+                return "(empty)";
+            }
+
+            if (batch.Count == 1)
+            {
+                return batch[0];
+            }
+
+            return batch[0] + ".." + batch[batch.Count - 1] + " (" + batch.Count + " ids)";
+        }
+
+        private static string FormatSeconds(double elapsedMs)
+        {
+            return (elapsedMs / 1000.0).ToString("0.00") + "s";
+        }
+
+        private static DateTime UnixSecondsToUtc(long unixSeconds)
+        {
+            return new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddSeconds(unixSeconds);
+        }
+
+        private static bool IsUnsignedInteger(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < value.Length; i++)
+            {
+                if (value[i] < '0' || value[i] > '9')
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        private sealed class TimeoutWebClient : WebClient
+        {
+            private readonly int timeoutMs;
+
+            public TimeoutWebClient(int timeoutMs)
+            {
+                this.timeoutMs = timeoutMs;
+            }
+
+            protected override WebRequest GetWebRequest(Uri address)
+            {
+                WebRequest request = base.GetWebRequest(address);
+                if (request != null)
+                {
+                    request.Timeout = timeoutMs;
+                }
+
+                return request;
+            }
+        }
+    }
+
+    internal sealed class FastLoaderModUpdateDecisionWindow : Window
+    {
+        private const int MaxVisibleMods = 10;
+        private readonly WorkshopUpdateCheckResult result;
+
+        public FastLoaderModUpdateDecisionWindow(WorkshopUpdateCheckResult result)
+        {
+            this.result = result;
+            absorbInputAroundWindow = true;
+            closeOnClickedOutside = false;
+            closeOnCancel = true;
+            doCloseX = true;
+            forcePause = false;
+        }
+
+        public override Vector2 InitialSize
+        {
+            get { return new Vector2(680f, 400f); }
+        }
+
+        public override void DoWindowContents(Rect inRect)
+        {
+            Text.Font = GameFont.Medium;
+            Widgets.Label(new Rect(0f, 0f, inRect.width, 32f), "FastLoader cache notice");
+
+            int updatedCount = result != null && result.UpdatedMods != null ? result.UpdatedMods.Count : 0;
+            Text.Font = GameFont.Small;
+            Rect textRect = new Rect(0f, 42f, inRect.width, 84f);
+            Widgets.Label(textRect,
+                "Steam Workshop mods were updated after the FastLoader cache was built.\n" +
+                "The game already loaded with the existing cache. Updated mods: " + updatedCount + ".\n" +
+                "Delete only affects the next load unless you rebuild now.");
+
+            Rect listRect = new Rect(0f, 132f, inRect.width, 184f);
+            Widgets.DrawMenuSection(listRect);
+            DrawUpdatedMods(listRect.ContractedBy(8f));
+
+            const float buttonWidth = 150f;
+            const float buttonHeight = 34f;
+            const float gap = 8f;
+            float y = inRect.height - buttonHeight;
+            Rect continueRect = new Rect(inRect.width - buttonWidth, y, buttonWidth, buttonHeight);
+            Rect deleteRect = new Rect(continueRect.x - gap - buttonWidth, y, buttonWidth, buttonHeight);
+            Rect rebuildRect = new Rect(deleteRect.x - gap - buttonWidth, y, buttonWidth, buttonHeight);
+
+            if (Widgets.ButtonText(rebuildRect, "Rebuild caches"))
+            {
+                Close();
+                FastLoaderCacheUiActions.StartBuildAllCaches();
+            }
+
+            if (Widgets.ButtonText(deleteRect, "Delete caches"))
+            {
+                Close();
+                FastLoaderCacheUiActions.ResetAllCaches();
+            }
+
+            if (Widgets.ButtonText(continueRect, "Continue"))
+            {
+                FastLoaderModUpdateChecker.IgnoreCurrentResult(result);
+                Close();
+            }
+        }
+
+        private void DrawUpdatedMods(Rect rect)
+        {
+            List<WorkshopUpdatedMod> mods = result != null ? result.UpdatedMods : null;
+            int count = mods != null ? mods.Count : 0;
+            int visibleCount = Math.Min(count, MaxVisibleMods);
+            float rowHeight = 18f;
+            for (int i = 0; i < visibleCount; i++)
+            {
+                WorkshopUpdatedMod mod = mods[i];
+                Rect rowRect = new Rect(rect.x, rect.y + i * rowHeight, rect.width, rowHeight);
+                if (i % 2 == 1)
+                {
+                    Widgets.DrawLightHighlight(rowRect);
+                }
+
+                Widgets.Label(new Rect(rowRect.x + 4f, rowRect.y, rowRect.width - 8f, rowRect.height), FormatMod(mod));
+            }
+
+            if (count > MaxVisibleMods)
+            {
+                Rect moreRect = new Rect(rect.x + 4f, rect.y + MaxVisibleMods * rowHeight + 4f, rect.width - 8f, 24f);
+                Widgets.Label(moreRect, "... and " + (count - MaxVisibleMods) + " more");
+            }
+        }
+
+        private static string FormatMod(WorkshopUpdatedMod mod)
+        {
+            string name = mod.Name;
+            if (string.IsNullOrEmpty(name))
+            {
+                name = mod.PackageId;
+            }
+
+            if (string.IsNullOrEmpty(name))
+            {
+                name = mod.WorkshopId;
+            }
+
+            return name + "  |  updated " + mod.UpdatedUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+        }
+    }
+
+    internal static class FastLoaderCacheUiActions
+    {
+        public static void StartBuildAllCaches()
+        {
+            try
+            {
+                FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
+                result.AtlasesSaved = FastLoaderBridge.BuildStaticAtlasCache();
+                Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Atlas caches: " + result.AtlasesSaved + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);
+                Find.WindowStack.Add(new TextureCacheBuildWindow());
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to start Build all caches.\n" + ex);
+                Messages.Message("Failed to build FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+
+        public static void ResetAllCaches()
+        {
+            try
+            {
+                FastLoaderRuntime.DeleteAllCaches();
+                Messages.Message("All FastLoader caches cleared. Current load is unchanged; rebuild or restart to use the new state.", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to clear all caches.\n" + ex);
+                Messages.Message("Failed to clear FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+    }
+}
