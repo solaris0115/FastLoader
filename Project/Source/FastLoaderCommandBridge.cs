@@ -8,6 +8,8 @@ namespace FastLoader
         private const string BuildLanguageArg = "-fastloader-build-language-cache";
         private const string BuildXmlLanguageArg = "-fastloader-build-xml-language-cache";
         private const string BuildAtlasArg = "-fastloader-build-atlas-cache";
+        private const string BuildAllArg = "-fastloader-build-all-caches";
+        private const string RebuildAllArg = "-fastloader-rebuild-all-caches";
         private static bool processed;
 
         public static void ProcessCommandLineBuildRequests()
@@ -23,13 +25,32 @@ namespace FastLoader
             bool buildXmlLanguage = HasArg(args, BuildXmlLanguageArg);
             bool buildLanguage = HasArg(args, BuildLanguageArg);
             bool buildAtlas = HasArg(args, BuildAtlasArg);
-            if (!buildXmlLanguage && !buildLanguage && !buildAtlas)
+            bool buildAll = HasArg(args, BuildAllArg);
+            bool rebuildAll = HasArg(args, RebuildAllArg);
+            if (!buildXmlLanguage && !buildLanguage && !buildAtlas && !buildAll && !rebuildAll)
             {
                 return;
             }
 
             try
             {
+                if (buildAll || rebuildAll)
+                {
+                    if (rebuildAll)
+                    {
+                        FastLoaderBridge.DeleteAllCaches();
+                    }
+
+                    FastLoaderBuildResult result = FastLoaderBridge.BuildAllCaches();
+                    if (!result.XmlCacheBuilt || result.LanguageCachesBuilt <= 0 || result.TexturesSaved <= 0)
+                    {
+                        throw new InvalidOperationException("Build all caches did not create required caches: " + result);
+                    }
+
+                    Log.Message("[FastLoader] Command bridge built all caches: " + result);
+                    return;
+                }
+
                 if (buildXmlLanguage)
                 {
                     FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
