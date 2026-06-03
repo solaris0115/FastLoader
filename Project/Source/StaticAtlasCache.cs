@@ -16,10 +16,12 @@ namespace FastLoader
     internal static class StaticAtlasCache
     {
         private const int Magic = 0x54414C46;
-        private const int FormatVersion = 3;
-        private const string HashVersion = "FastLoaderStaticAtlasV3RenderTextureFallback";
+        private const int FormatVersion = 4;
+        private const string HashVersion = "FastLoaderStaticAtlasV4StripedReadback";
         private const string CacheExtension = ".atlascache";
-        private const int MaxTexturePayloadBytes = 128 * 1024 * 1024;
+        private const int MaxTextureChunkBytes = 32 * 1024 * 1024;
+        private const long MaxTexturePayloadBytes = 1024L * 1024L * 1024L;
+        private const int MaxTextureChunkCount = 4096;
 
         private static readonly FieldInfo TexturesField = AccessTools.Field(typeof(StaticTextureAtlas), "textures");
         private static readonly FieldInfo TilesField = AccessTools.Field(typeof(StaticTextureAtlas), "tiles");
@@ -61,11 +63,13 @@ namespace FastLoader
                     AtlasCacheRecord record;
                     if (!TryRead(path, hash, out record))
                     {
+                        Log.Warning("[FastLoader] Static atlas cache restore skipped for " + atlas.groupKey + ": cache record is invalid.");
                         return false;
                     }
 
                     if (record.UvRects.Count != textures.Count)
                     {
+                        Log.Warning("[FastLoader] Static atlas cache restore skipped for " + atlas.groupKey + ": texture count changed.");
                         return false;
                     }
 
@@ -73,12 +77,14 @@ namespace FastLoader
                     Texture2D maskTexture = record.MaskTexture != null ? RestoreTexture(record.MaskTexture) : null;
                     if (colorTexture == null)
                     {
+                        Log.Warning("[FastLoader] Static atlas cache restore skipped for " + atlas.groupKey + ": color texture restore returned null.");
                         return false;
                     }
 
                     ColorTextureField.SetValue(atlas, colorTexture);
                     MaskTextureField.SetValue(atlas, maskTexture);
                     RestoreTiles(atlas, textures, record.UvRects);
+                    Log.Message("[FastLoader] Static atlas cache restored for " + atlas.groupKey + ": textures=" + textures.Count + ", payload=" + FormatBytes(GetTexturePayloadBytes(record.ColorTexture) + GetTexturePayloadBytes(record.MaskTexture)));
                     return true;
                 }
                 catch (Exception ex)
@@ -353,6 +359,7 @@ namespace FastLoader
                 return null;
             }
 
+            int stripeHeight = CalculateStripeHeight(source.width);
             RenderTexture rt = RenderTexture.GetTemporary(
                 source.width,
                 source.height,
@@ -363,25 +370,47 @@ namespace FastLoader
             try
             {
                 Graphics.Blit(source, rt);
-                AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32);
-                request.WaitForCompletion();
-                if (request.hasError)
+
+                List<TextureChunk> chunks = new List<TextureChunk>();
+                for (int y = 0; y < source.height; y += stripeHeight)
                 {
-                    Log.Warning("[FastLoader] Static atlas render texture readback failed for " + source.name + ".");
-                    return null;
+                    int height = Math.Min(stripeHeight, source.height - y);
+                    AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, 0, source.width, y, height, 0, 1, TextureFormat.RGBA32);
+                    request.WaitForCompletion();
+                    if (request.hasError)
+                    {
+                        Log.Warning("[FastLoader] Static atlas render texture stripe readback failed for " + source.name + ".");
+                        return null;
+                    }
+
+                    var data = request.GetData<byte>();
+                    int expectedLength = source.width * height * 4;
+                    if (data.Length != expectedLength || data.Length <= 0 || data.Length > MaxTextureChunkBytes)
+                    {
+                        Log.Warning("[FastLoader] Static atlas render texture stripe capture skipped for " + source.name + ": raw texture chunk is invalid.");
+                        return null;
+                    }
+
+                    byte[] rawData = new byte[data.Length];
+                    for (int i = 0; i < data.Length; i++)
+                    {
+                        rawData[i] = data[i];
+                    }
+
+                    chunks.Add(new TextureChunk
+                    {
+                        X = 0,
+                        Y = y,
+                        Width = source.width,
+                        Height = height,
+                        RawData = rawData
+                    });
                 }
 
-                var data = request.GetData<byte>();
-                if (data.Length <= 0 || data.Length > MaxTexturePayloadBytes)
+                if (chunks.Count == 0 || chunks.Count > MaxTextureChunkCount)
                 {
-                    Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": raw texture data is invalid.");
+                    Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": invalid chunk count.");
                     return null;
-                }
-
-                byte[] rawData = new byte[data.Length];
-                for (int i = 0; i < data.Length; i++)
-                {
-                    rawData[i] = data[i];
                 }
 
                 return new TexturePayload
@@ -395,7 +424,8 @@ namespace FastLoader
                     WrapMode = (int)source.wrapMode,
                     AnisoLevel = source.anisoLevel,
                     MipMapBias = source.mipMapBias,
-                    RawData = rawData
+                    TotalRawLength = checked((int)estimatedBytes),
+                    Chunks = chunks
                 };
             }
             catch (Exception ex)
@@ -409,9 +439,17 @@ namespace FastLoader
             }
         }
 
+        private static int CalculateStripeHeight(int width)
+        {
+            int rowBytes = Math.Max(1, width) * 4;
+            return Math.Max(1, MaxTextureChunkBytes / rowBytes);
+        }
+
         private static Texture2D RestoreTexture(TexturePayload payload)
         {
-            if (payload == null || payload.RawData == null || payload.RawData.Length == 0)
+            if (payload == null ||
+                ((payload.RawData == null || payload.RawData.Length == 0) &&
+                 (payload.Chunks == null || payload.Chunks.Count == 0)))
             {
                 return null;
             }
@@ -427,9 +465,88 @@ namespace FastLoader
             texture.wrapMode = (TextureWrapMode)payload.WrapMode;
             texture.anisoLevel = payload.AnisoLevel;
             texture.mipMapBias = payload.MipMapBias;
-            texture.LoadRawTextureData(payload.RawData);
+            texture.LoadRawTextureData(GetRawTextureData(payload));
             texture.Apply(false, true);
             return texture;
+        }
+
+        private static byte[] GetRawTextureData(TexturePayload payload)
+        {
+            if (payload.RawData != null)
+            {
+                return payload.RawData;
+            }
+
+            if (payload.Chunks == null || payload.Chunks.Count == 0)
+            {
+                throw new InvalidDataException("Static atlas texture has no raw payload.");
+            }
+
+            if ((GraphicsFormat)payload.GraphicsFormat != GraphicsFormat.R8G8B8A8_UNorm)
+            {
+                throw new InvalidDataException("Unsupported chunked static atlas graphics format: " + payload.GraphicsFormat);
+            }
+
+            int totalLength = payload.TotalRawLength;
+            if (totalLength <= 0 || totalLength > MaxTexturePayloadBytes)
+            {
+                throw new InvalidDataException("Invalid chunked static atlas raw texture length: " + totalLength);
+            }
+
+            byte[] rawData = new byte[totalLength];
+            int bytesPerPixel = 4;
+            int targetStride = payload.Width * bytesPerPixel;
+            for (int i = 0; i < payload.Chunks.Count; i++)
+            {
+                TextureChunk chunk = payload.Chunks[i];
+                int sourceStride = chunk.Width * bytesPerPixel;
+                int expectedLength = sourceStride * chunk.Height;
+                if (chunk.RawData == null ||
+                    chunk.RawData.Length != expectedLength ||
+                    chunk.X < 0 ||
+                    chunk.Y < 0 ||
+                    chunk.Width <= 0 ||
+                    chunk.Height <= 0 ||
+                    chunk.X + chunk.Width > payload.Width ||
+                    chunk.Y + chunk.Height > payload.Height)
+                {
+                    throw new InvalidDataException("Invalid static atlas raw texture chunk.");
+                }
+
+                for (int row = 0; row < chunk.Height; row++)
+                {
+                    int sourceOffset = row * sourceStride;
+                    int targetOffset = ((chunk.Y + row) * payload.Width + chunk.X) * bytesPerPixel;
+                    Buffer.BlockCopy(chunk.RawData, sourceOffset, rawData, targetOffset, sourceStride);
+                }
+            }
+
+            return rawData;
+        }
+
+        private static long GetTexturePayloadBytes(TexturePayload payload)
+        {
+            if (payload == null)
+            {
+                return 0L;
+            }
+
+            if (payload.RawData != null)
+            {
+                return payload.RawData.Length;
+            }
+
+            if (payload.TotalRawLength > 0)
+            {
+                return payload.TotalRawLength;
+            }
+
+            return 0L;
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            return (bytes / (1024.0 * 1024.0)).ToString("0.00") + "MB";
         }
 
         private static List<Texture2D> GetTextures(StaticTextureAtlas atlas)
@@ -601,8 +718,28 @@ namespace FastLoader
             writer.Write(texture.WrapMode);
             writer.Write(texture.AnisoLevel);
             writer.Write(texture.MipMapBias);
-            writer.Write(texture.RawData.Length);
-            writer.Write(texture.RawData);
+            if (texture.Chunks != null && texture.Chunks.Count > 0)
+            {
+                writer.Write((byte)1);
+                writer.Write(texture.TotalRawLength);
+                writer.Write(texture.Chunks.Count);
+                for (int i = 0; i < texture.Chunks.Count; i++)
+                {
+                    TextureChunk chunk = texture.Chunks[i];
+                    writer.Write(chunk.X);
+                    writer.Write(chunk.Y);
+                    writer.Write(chunk.Width);
+                    writer.Write(chunk.Height);
+                    writer.Write(chunk.RawData.Length);
+                    writer.Write(chunk.RawData);
+                }
+            }
+            else
+            {
+                writer.Write((byte)0);
+                writer.Write(texture.RawData.Length);
+                writer.Write(texture.RawData);
+            }
         }
 
         private static TexturePayload ReadTexture(BinaryReader reader)
@@ -617,16 +754,62 @@ namespace FastLoader
             texture.WrapMode = reader.ReadInt32();
             texture.AnisoLevel = reader.ReadInt32();
             texture.MipMapBias = reader.ReadSingle();
-            int length = reader.ReadInt32();
-            if (length <= 0 || length > MaxTexturePayloadBytes)
+            byte storageKind = reader.ReadByte();
+            if (storageKind == 0)
             {
-                throw new InvalidDataException("Invalid static atlas raw texture length: " + length);
-            }
+                int length = reader.ReadInt32();
+                if (length <= 0 || length > MaxTexturePayloadBytes)
+                {
+                    throw new InvalidDataException("Invalid static atlas raw texture length: " + length);
+                }
 
-            texture.RawData = reader.ReadBytes(length);
-            if (texture.RawData.Length != length)
+                texture.RawData = reader.ReadBytes(length);
+                if (texture.RawData.Length != length)
+                {
+                    throw new EndOfStreamException("Static atlas raw texture data was truncated.");
+                }
+            }
+            else if (storageKind == 1)
             {
-                throw new EndOfStreamException("Static atlas raw texture data was truncated.");
+                int totalLength = reader.ReadInt32();
+                if (totalLength <= 0 || totalLength > MaxTexturePayloadBytes)
+                {
+                    throw new InvalidDataException("Invalid chunked static atlas raw texture length: " + totalLength);
+                }
+
+                int chunkCount = reader.ReadInt32();
+                if (chunkCount <= 0 || chunkCount > MaxTextureChunkCount)
+                {
+                    throw new InvalidDataException("Invalid static atlas raw texture chunk count: " + chunkCount);
+                }
+
+                texture.TotalRawLength = totalLength;
+                texture.Chunks = new List<TextureChunk>(chunkCount);
+                for (int i = 0; i < chunkCount; i++)
+                {
+                    TextureChunk chunk = new TextureChunk();
+                    chunk.X = reader.ReadInt32();
+                    chunk.Y = reader.ReadInt32();
+                    chunk.Width = reader.ReadInt32();
+                    chunk.Height = reader.ReadInt32();
+                    int length = reader.ReadInt32();
+                    if (length <= 0 || length > MaxTextureChunkBytes)
+                    {
+                        throw new InvalidDataException("Invalid static atlas raw texture chunk length: " + length);
+                    }
+
+                    chunk.RawData = reader.ReadBytes(length);
+                    if (chunk.RawData.Length != length)
+                    {
+                        throw new EndOfStreamException("Static atlas raw texture chunk data was truncated.");
+                    }
+
+                    texture.Chunks.Add(chunk);
+                }
+            }
+            else
+            {
+                throw new InvalidDataException("Invalid static atlas texture storage kind: " + storageKind);
             }
 
             return texture;
@@ -709,6 +892,17 @@ namespace FastLoader
             public int WrapMode;
             public int AnisoLevel;
             public float MipMapBias;
+            public int TotalRawLength;
+            public byte[] RawData;
+            public List<TextureChunk> Chunks;
+        }
+
+        private sealed class TextureChunk
+        {
+            public int X;
+            public int Y;
+            public int Width;
+            public int Height;
             public byte[] RawData;
         }
     }
