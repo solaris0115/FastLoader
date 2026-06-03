@@ -10,6 +10,7 @@ namespace FastLoader
 {
     internal static class TextureRawCache
     {
+        private const string TextureCacheHashVersion = "0.2.2";
         private static readonly string[] TextureExtensions = new string[] { ".png", ".jpg", ".jpeg", ".psd" };
 
         private static Dictionary<string, List<RawTextureEntry>> loadedCaches;
@@ -193,7 +194,7 @@ namespace FastLoader
         {
             using (SHA256 sha = SHA256.Create())
             {
-                AppendHash(sha, FastLoaderRuntime.FastLoaderVersion);
+                AppendHash(sha, TextureCacheHashVersion);
                 AppendHash(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
                 AppendHash(sha, "loadout");
                 AppendHash(sha, GetCurrentLoadoutHash());
@@ -213,7 +214,7 @@ namespace FastLoader
 
             using (SHA256 sha = SHA256.Create())
             {
-                AppendHash(sha, FastLoaderRuntime.FastLoaderVersion);
+                AppendHash(sha, TextureCacheHashVersion);
                 AppendHash(sha, VersionControl.CurrentVersionStringWithRev ?? string.Empty);
                 AppendHash(sha, "loadout");
                 AppendHash(sha, GetCurrentLoadoutHash());
