@@ -16,8 +16,8 @@ namespace FastLoader
     internal static class StaticAtlasCache
     {
         private const int Magic = 0x54414C46;
-        private const int FormatVersion = 1;
-        private const string HashVersion = "FastLoaderStaticAtlasV1";
+        private const int FormatVersion = 2;
+        private const string HashVersion = "FastLoaderStaticAtlasV2RawOnly";
         private const string CacheExtension = ".atlascache";
         private const int MaxTexturePayloadBytes = 128 * 1024 * 1024;
 
@@ -267,7 +267,8 @@ namespace FastLoader
             payload.RawData = ReadRawTextureData(texture, payload.MipCount);
             if (payload.RawData == null || payload.RawData.Length == 0)
             {
-                return CaptureRenderTextureCopy(texture);
+                Log.Warning("[FastLoader] Static atlas cache skipped for " + texture.name + ": raw texture data is unavailable.");
+                return null;
             }
 
             if (payload.RawData.Length > MaxTexturePayloadBytes)
@@ -341,71 +342,6 @@ namespace FastLoader
             {
                 Log.Warning("[FastLoader] Static atlas GPU readback failed for " + texture.name + ": " + ex.Message);
                 return null;
-            }
-        }
-
-        private static TexturePayload CaptureRenderTextureCopy(Texture2D source)
-        {
-            long estimatedBytes = (long)source.width * source.height * 4L;
-            if (estimatedBytes > MaxTexturePayloadBytes)
-            {
-                Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": estimated payload is too large.");
-                return null;
-            }
-
-            RenderTexture rt = RenderTexture.GetTemporary(
-                source.width,
-                source.height,
-                0,
-                RenderTextureFormat.ARGB32,
-                RenderTextureReadWrite.Default);
-
-            try
-            {
-                Graphics.Blit(source, rt);
-                AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32);
-                request.WaitForCompletion();
-                if (request.hasError)
-                {
-                    Log.Warning("[FastLoader] Static atlas render texture readback failed for " + source.name + ".");
-                    return null;
-                }
-
-                var data = request.GetData<byte>();
-                byte[] rawData = new byte[data.Length];
-                for (int i = 0; i < data.Length; i++)
-                {
-                    rawData[i] = data[i];
-                }
-
-                if (rawData.Length == 0 || rawData.Length > MaxTexturePayloadBytes)
-                {
-                    Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": raw texture data is invalid.");
-                    return null;
-                }
-
-                return new TexturePayload
-                {
-                    Name = source.name ?? string.Empty,
-                    Width = source.width,
-                    Height = source.height,
-                    GraphicsFormat = (int)GraphicsFormat.R8G8B8A8_UNorm,
-                    MipCount = 1,
-                    FilterMode = (int)source.filterMode,
-                    WrapMode = (int)source.wrapMode,
-                    AnisoLevel = source.anisoLevel,
-                    MipMapBias = source.mipMapBias,
-                    RawData = rawData
-                };
-            }
-            catch (Exception ex)
-            {
-                Log.Warning("[FastLoader] Static atlas render texture capture failed for " + source.name + ": " + ex.Message);
-                return null;
-            }
-            finally
-            {
-                RenderTexture.ReleaseTemporary(rt);
             }
         }
 
