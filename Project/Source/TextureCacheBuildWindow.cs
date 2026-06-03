@@ -8,10 +8,16 @@ namespace FastLoader
     internal sealed class TextureCacheBuildWindow : Window
     {
         private readonly TextureRawCache.TextureBuildSession session;
+        private readonly bool deleteCachesOnFailure;
         private bool completionHandled;
 
-        public TextureCacheBuildWindow()
+        public TextureCacheBuildWindow() : this(false)
         {
+        }
+
+        public TextureCacheBuildWindow(bool deleteCachesOnFailure)
+        {
+            this.deleteCachesOnFailure = deleteCachesOnFailure;
             session = TextureRawCache.StartRebuildFromLoadedMods();
             absorbInputAroundWindow = true;
             closeOnClickedOutside = false;
@@ -31,7 +37,25 @@ namespace FastLoader
 
             if (!session.Finished)
             {
-                session.Step();
+                try
+                {
+                    session.Step();
+                }
+                catch (System.Exception ex)
+                {
+                    completionHandled = true;
+                    if (deleteCachesOnFailure)
+                    {
+                        FastLoaderCacheUiActions.ReportBuildFailureAndDeleteCaches("Texture cache build failed: " + ex.Message, ex);
+                    }
+                    else
+                    {
+                        Log.Error("[FastLoader] Texture cache build failed.\n" + ex);
+                    }
+
+                    Close();
+                }
+
                 return;
             }
 

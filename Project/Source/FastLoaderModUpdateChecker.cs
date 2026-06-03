@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -659,15 +660,35 @@ namespace FastLoader
         {
             try
             {
+                FastLoaderRuntime.DeleteAllCaches();
+                EnsureNoCacheFilesRemain();
                 FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
+                if (!result.XmlCacheBuilt)
+                {
+                    throw new InvalidOperationException("XML cache build failed.");
+                }
+
+                if (result.LanguageCachesBuilt <= 0)
+                {
+                    throw new InvalidOperationException("Language cache build failed.");
+                }
+
                 result.AtlasesSaved = FastLoaderBridge.BuildStaticAtlasCache();
+                if (result.AtlasesSaved <= 0)
+                {
+                    throw new InvalidOperationException("Atlas cache build failed.");
+                }
+
                 Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Atlas caches: " + result.AtlasesSaved + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);
-                Find.WindowStack.Add(new TextureCacheBuildWindow());
+                Find.WindowStack.Add(new TextureCacheBuildWindow(true));
             }
             catch (Exception ex)
             {
                 Log.Error("[FastLoader] Failed to start Build all caches.\n" + ex);
-                Messages.Message("Failed to build FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
+                bool partialRemoved = TryDeleteAfterFailedBuild();
+                ShowFailurePopup("Build Cache failed", "FastLoader could not build caches.\n" +
+                    (partialRemoved ? "Partial cache files were removed." : "Partial cache files could not be fully removed.") +
+                    "\n\n" + ex.Message);
             }
         }
 
@@ -676,13 +697,77 @@ namespace FastLoader
             try
             {
                 FastLoaderRuntime.DeleteAllCaches();
+                EnsureNoCacheFilesRemain();
                 Messages.Message("All FastLoader caches cleared. Current load is unchanged; rebuild or restart to use the new state.", MessageTypeDefOf.TaskCompletion, false);
             }
             catch (Exception ex)
             {
                 Log.Error("[FastLoader] Failed to clear all caches.\n" + ex);
-                Messages.Message("Failed to clear FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
+                ShowFailurePopup("Remove Cache failed", "FastLoader could not remove cache files.\n\n" + ex.Message);
             }
+        }
+
+        public static void ReportBuildFailureAndDeleteCaches(string detail, Exception exception)
+        {
+            Log.Error("[FastLoader] Build Cache failed.\n" + exception);
+            bool partialRemoved = TryDeleteAfterFailedBuild();
+            ShowFailurePopup("Build Cache failed", "FastLoader could not build caches.\n" +
+                (partialRemoved ? "Partial cache files were removed." : "Partial cache files could not be fully removed.") +
+                "\n\n" + (detail ?? "Unknown failure."));
+        }
+
+        private static bool TryDeleteAfterFailedBuild()
+        {
+            try
+            {
+                FastLoaderRuntime.DeleteAllCaches();
+                EnsureNoCacheFilesRemain();
+                return true;
+            }
+            catch (Exception deleteEx)
+            {
+                Log.Error("[FastLoader] Failed to remove partial cache files after build failure.\n" + deleteEx);
+                return false;
+            }
+        }
+
+        private static void EnsureNoCacheFilesRemain()
+        {
+            string root = Path.Combine(GenFilePaths.ConfigFolderPath, "FastLoader");
+            if (!Directory.Exists(root))
+            {
+                return;
+            }
+
+            string[] remaining = Directory.GetFiles(root, "*", SearchOption.AllDirectories);
+            for (int i = 0; i < remaining.Length; i++)
+            {
+                string path = remaining[i];
+                string extension = Path.GetExtension(path);
+                string fileName = Path.GetFileName(path);
+                if (string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(fileName, "resolved_defs.xml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(fileName, "cache_state.xml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".texcache", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".flang", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".finj", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".atlascache", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new IOException("Cache file still exists: " + path);
+                }
+            }
+        }
+
+        private static void ShowFailurePopup(string title, string message)
+        {
+            Find.WindowStack.Add(new Dialog_MessageBox(
+                message ?? "FastLoader operation failed.",
+                "OK",
+                null,
+                null,
+                null,
+                title,
+                false));
         }
     }
 }
