@@ -82,6 +82,32 @@ namespace FastLoader
                 return name;
             }
 
+            if (name.StartsWith("FastLoader.Xml.", StringComparison.Ordinal))
+            {
+                return name;
+            }
+
+            if (name.StartsWith("FastLoader.LanguageLoad.", StringComparison.Ordinal))
+            {
+                return name;
+            }
+
+            if (name.StartsWith("FastLoader.DefInjected.Before.", StringComparison.Ordinal) ||
+                name.StartsWith("FastLoader.DefInjected.After.", StringComparison.Ordinal))
+            {
+                return name;
+            }
+
+            if (name.StartsWith("FastLoader.TextureReload.", StringComparison.Ordinal))
+            {
+                return name;
+            }
+
+            if (name.StartsWith("FastLoader.StaticAtlas.BakeOrRestore", StringComparison.Ordinal))
+            {
+                return name;
+            }
+
             if (name.StartsWith("FastLoader.LanguageCache.TryRead", StringComparison.Ordinal))
             {
                 return "FastLoader.LanguageCache.TryRead";

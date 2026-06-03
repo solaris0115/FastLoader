@@ -19,6 +19,7 @@ namespace FastLoader
         private const int FormatVersion = 1;
         private const string HashVersion = "FastLoaderStaticAtlasV1";
         private const string CacheExtension = ".atlascache";
+        private const int MaxTexturePayloadBytes = 128 * 1024 * 1024;
 
         private static readonly FieldInfo TexturesField = AccessTools.Field(typeof(StaticTextureAtlas), "textures");
         private static readonly FieldInfo TilesField = AccessTools.Field(typeof(StaticTextureAtlas), "tiles");
@@ -269,7 +270,7 @@ namespace FastLoader
                 return CaptureRenderTextureCopy(texture);
             }
 
-            if (payload.RawData.Length > 1024 * 1024 * 1024)
+            if (payload.RawData.Length > MaxTexturePayloadBytes)
             {
                 Log.Warning("[FastLoader] Static atlas texture capture skipped for " + texture.name + ": raw texture data is too large.");
                 return null;
@@ -310,6 +311,11 @@ namespace FastLoader
                     }
 
                     var data = request.GetData<byte>();
+                    if ((long)totalLength + data.Length > MaxTexturePayloadBytes)
+                    {
+                        return null;
+                    }
+
                     byte[] bytes = new byte[data.Length];
                     for (int i = 0; i < data.Length; i++)
                     {
@@ -340,6 +346,13 @@ namespace FastLoader
 
         private static TexturePayload CaptureRenderTextureCopy(Texture2D source)
         {
+            long estimatedBytes = (long)source.width * source.height * 4L;
+            if (estimatedBytes > MaxTexturePayloadBytes)
+            {
+                Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": estimated payload is too large.");
+                return null;
+            }
+
             RenderTexture rt = RenderTexture.GetTemporary(
                 source.width,
                 source.height,
@@ -365,7 +378,7 @@ namespace FastLoader
                     rawData[i] = data[i];
                 }
 
-                if (rawData.Length == 0 || rawData.Length > 1024 * 1024 * 1024)
+                if (rawData.Length == 0 || rawData.Length > MaxTexturePayloadBytes)
                 {
                     Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": raw texture data is invalid.");
                     return null;
@@ -605,7 +618,7 @@ namespace FastLoader
             texture.AnisoLevel = reader.ReadInt32();
             texture.MipMapBias = reader.ReadSingle();
             int length = reader.ReadInt32();
-            if (length <= 0 || length > 1024 * 1024 * 1024)
+            if (length <= 0 || length > MaxTexturePayloadBytes)
             {
                 throw new InvalidDataException("Invalid static atlas raw texture length: " + length);
             }
@@ -703,9 +716,9 @@ namespace FastLoader
     [HarmonyPatch(typeof(StaticTextureAtlas), nameof(StaticTextureAtlas.Bake))]
     internal static class Patch_StaticTextureAtlas_Bake_StaticAtlasCache
     {
-        private static bool Prefix(StaticTextureAtlas __instance, bool rebake, ref bool __state)
+        private static bool Prefix(StaticTextureAtlas __instance, bool rebake, ref FastLoaderProfileScope __state)
         {
-            __state = false;
+            __state = FastLoaderProfiler.Scope("FastLoader.StaticAtlas.BakeOrRestore");
             if (rebake)
             {
                 return true;
@@ -713,11 +726,18 @@ namespace FastLoader
 
             if (StaticAtlasCache.TryRestore(__instance))
             {
-                __state = true;
                 return false;
             }
 
             return true;
+        }
+
+        private static void Postfix(FastLoaderProfileScope __state)
+        {
+            if (__state != null)
+            {
+                __state.Dispose();
+            }
         }
     }
 

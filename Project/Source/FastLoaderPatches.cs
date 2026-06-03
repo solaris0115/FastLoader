@@ -13,8 +13,9 @@ namespace FastLoader
     [HarmonyPatch(typeof(LoadedLanguage), nameof(LoadedLanguage.LoadData))]
     internal static class Patch_LoadedLanguage_LoadData_LanguageCache
     {
-        private static bool Prefix(LoadedLanguage __instance)
+        private static bool Prefix(LoadedLanguage __instance, ref FastLoaderProfileScope __state)
         {
+            __state = FastLoaderProfiler.Scope("FastLoader.LanguageLoad.Total");
             if (LanguageBinaryCache.IsDataLoaded(__instance))
             {
                 return true;
@@ -27,23 +28,49 @@ namespace FastLoader
 
             return true;
         }
+
+        private static void Postfix(FastLoaderProfileScope __state)
+        {
+            if (__state != null)
+            {
+                __state.Dispose();
+            }
+        }
     }
 
     [HarmonyPatch(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_BeforeImpliedDefs))]
     internal static class Patch_LoadedLanguage_InjectBefore_FastDefInjected
     {
-        private static bool Prefix(LoadedLanguage __instance)
+        private static bool Prefix(LoadedLanguage __instance, ref FastLoaderProfileScope __state)
         {
+            __state = FastLoaderProfiler.Scope("FastLoader.DefInjected.Before.Total");
             return !FastDefInjectedApplier.TryInjectBefore(__instance);
+        }
+
+        private static void Postfix(FastLoaderProfileScope __state)
+        {
+            if (__state != null)
+            {
+                __state.Dispose();
+            }
         }
     }
 
     [HarmonyPatch(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_AfterImpliedDefs))]
     internal static class Patch_LoadedLanguage_InjectAfter_FastDefInjected
     {
-        private static bool Prefix(LoadedLanguage __instance)
+        private static bool Prefix(LoadedLanguage __instance, ref FastLoaderProfileScope __state)
         {
+            __state = FastLoaderProfiler.Scope("FastLoader.DefInjected.After.Total");
             return !FastDefInjectedApplier.TryInjectAfter(__instance);
+        }
+
+        private static void Postfix(FastLoaderProfileScope __state)
+        {
+            if (__state != null)
+            {
+                __state.Dispose();
+            }
         }
     }
 
@@ -70,10 +97,10 @@ namespace FastLoader
     [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadModXML))]
     internal static class Patch_LoadModXML
     {
-        private static bool Prefix(bool hotReload, ref List<LoadableXmlAsset> __result, ref ProfileScope __state)
+        private static bool Prefix(bool hotReload, ref List<LoadableXmlAsset> __result, ref FastLoaderDualProfileScope __state)
         {
             FastLoaderRuntime.BeginLoad(hotReload);
-            __state = FastProfile.Scope("LoadedModManager.LoadModXML");
+            __state = FastLoaderProfiler.Scope("LoadedModManager.LoadModXML", "FastLoader.Xml.LoadModXML.Total");
 
             if (FastLoaderRuntime.IsCacheHit)
             {
@@ -84,7 +111,7 @@ namespace FastLoader
             return true;
         }
 
-        private static void Postfix(ProfileScope __state)
+        private static void Postfix(FastLoaderDualProfileScope __state)
         {
             if (__state != null)
             {
@@ -96,9 +123,9 @@ namespace FastLoader
     [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.CombineIntoUnifiedXML))]
     internal static class Patch_CombineIntoUnifiedXML
     {
-        private static bool Prefix(ref XmlDocument __result, ref ProfileScope __state)
+        private static bool Prefix(ref XmlDocument __result, ref FastLoaderDualProfileScope __state)
         {
-            __state = FastProfile.Scope("LoadedModManager.CombineIntoUnifiedXML");
+            __state = FastLoaderProfiler.Scope("LoadedModManager.CombineIntoUnifiedXML", "FastLoader.Xml.CombineIntoUnifiedXML.Total");
             if (FastLoaderRuntime.IsCacheHit)
             {
                 __result = FastLoaderRuntime.CachedResolvedDefs;
@@ -108,7 +135,7 @@ namespace FastLoader
             return true;
         }
 
-        private static void Postfix(ProfileScope __state)
+        private static void Postfix(FastLoaderDualProfileScope __state)
         {
             if (__state != null)
             {
@@ -120,13 +147,13 @@ namespace FastLoader
     [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.ErrorCheckPatches))]
     internal static class Patch_ErrorCheckPatches
     {
-        private static bool Prefix(ref ProfileScope __state)
+        private static bool Prefix(ref FastLoaderDualProfileScope __state)
         {
-            __state = FastProfile.Scope("LoadedModManager.ErrorCheckPatches");
+            __state = FastLoaderProfiler.Scope("LoadedModManager.ErrorCheckPatches", "FastLoader.Xml.ErrorCheckPatches.Total");
             return !FastLoaderRuntime.IsCacheHit;
         }
 
-        private static void Postfix(ProfileScope __state)
+        private static void Postfix(FastLoaderDualProfileScope __state)
         {
             if (__state != null)
             {
@@ -138,13 +165,13 @@ namespace FastLoader
     [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.ApplyPatches))]
     internal static class Patch_ApplyPatches
     {
-        private static bool Prefix(ref ProfileScope __state)
+        private static bool Prefix(ref FastLoaderDualProfileScope __state)
         {
-            __state = FastProfile.Scope("LoadedModManager.ApplyPatches");
+            __state = FastLoaderProfiler.Scope("LoadedModManager.ApplyPatches", "FastLoader.Xml.ApplyPatches.Total");
             return !FastLoaderRuntime.IsCacheHit;
         }
 
-        private static void Postfix(ProfileScope __state)
+        private static void Postfix(FastLoaderDualProfileScope __state)
         {
             if (__state != null)
             {
@@ -158,7 +185,7 @@ namespace FastLoader
     {
         private sealed class ParseState
         {
-            public ProfileScope Scope;
+            public FastLoaderDualProfileScope Scope;
             public bool UsedCache;
             public int ParsedDefCount;
         }
@@ -167,7 +194,7 @@ namespace FastLoader
         {
             __state = new ParseState
             {
-                Scope = FastProfile.Scope("LoadedModManager.ParseAndProcessXML")
+                Scope = FastLoaderProfiler.Scope("LoadedModManager.ParseAndProcessXML", "FastLoader.Xml.ParseAndProcessXML.Total")
             };
 
             if (!FastLoaderRuntime.IsCacheHit)
@@ -247,7 +274,7 @@ namespace FastLoader
             return AccessTools.Method(typeof(ModContentPack), "ReloadContentInt");
         }
 
-        private static bool Prefix(ModContentPack __instance, bool hotReload)
+        private static bool Prefix(ModContentPack __instance, bool hotReload, ref FastLoaderProfileScope __state)
         {
             if (hotReload)
             {
@@ -258,6 +285,8 @@ namespace FastLoader
             {
                 return true;
             }
+
+            __state = FastLoaderProfiler.Scope("FastLoader.TextureReload.Total");
 
             List<RawTextureEntry> entries;
             string modDescription = FastLoaderProfiler.DescribeMod(__instance);
@@ -293,6 +322,14 @@ namespace FastLoader
             }
 
             return false;
+        }
+
+        private static void Postfix(FastLoaderProfileScope __state)
+        {
+            if (__state != null)
+            {
+                __state.Dispose();
+            }
         }
 
         private static void ReloadContentWithCachedTextures(
