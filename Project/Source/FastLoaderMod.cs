@@ -47,79 +47,23 @@ namespace FastLoader
             listing.Gap(8f);
             Rect buttonRow = listing.GetRect(30f);
             const float gap = 4f;
-            float buttonWidth = Mathf.Min(180f, (buttonRow.width - gap * 2f) / 3f);
-            Rect texClearRect = new Rect(buttonRow.xMax - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
-            Rect xmlClearRect = new Rect(texClearRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
-            Rect resetAllRect = new Rect(xmlClearRect.x - gap - buttonWidth, buttonRow.y, buttonWidth, buttonRow.height);
+            float buttonWidth = Mathf.Min(220f, (buttonRow.width - gap) / 2f);
+            Rect buildAllRect = new Rect(buttonRow.x, buttonRow.y, buttonWidth, buttonRow.height);
+            Rect resetAllRect = new Rect(buildAllRect.xMax + gap, buttonRow.y, buttonWidth, buttonRow.height);
+
+            if (Widgets.ButtonText(buildAllRect, "Build all caches now"))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "Build XML, language, texture, and atlas caches from the current loaded data?",
+                    BuildAllCachesFromSettings,
+                    true));
+            }
 
             if (Widgets.ButtonText(resetAllRect, "Reset all caches"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear all FastLoader cache files (XML + texture + language)? Use the build buttons to create them again.",
+                    "Clear all FastLoader cache files (XML + language + texture + atlas)? Use Build all caches now to create them again.",
                     ResetAllCachesFromSettings,
-                    true));
-            }
-
-            if (Widgets.ButtonText(xmlClearRect, "Reset XML cache"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear FastLoader XML cache files? Use Build XML cache now to create them again.",
-                    DeleteXmlCacheFromSettings,
-                    true));
-            }
-
-            if (Widgets.ButtonText(texClearRect, "Reset texture cache"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear FastLoader texture cache files? Use Build texture cache now to create them again.",
-                    DeleteResourceCacheFromSettings,
-                    true));
-            }
-
-            listing.Gap(4f);
-            Rect atlasResetRow = listing.GetRect(30f);
-            Rect atlasResetRect = new Rect(atlasResetRow.x, atlasResetRow.y, buttonWidth, atlasResetRow.height);
-            if (Widgets.ButtonText(atlasResetRect, "Reset atlas cache"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear FastLoader static atlas cache files? Use Build atlas cache now after reaching the main menu to create them again.",
-                    DeleteAtlasCacheFromSettings,
-                    true));
-            }
-
-            listing.Gap(8f);
-            Rect buildRow = listing.GetRect(30f);
-            float buildButtonWidth = Mathf.Min(190f, (buildRow.width - gap * 2f) / 3f);
-            Rect buildAllRect = new Rect(buildRow.x, buildRow.y, buildButtonWidth, buildRow.height);
-            Rect buildTexRect = new Rect(buildAllRect.xMax + gap, buildRow.y, buildButtonWidth, buildRow.height);
-            Rect buildXmlRect = new Rect(buildTexRect.xMax + gap, buildRow.y, buildButtonWidth, buildRow.height);
-            if (Widgets.ButtonText(buildAllRect, "Build all caches now"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Build XML, language, and texture caches from the current loaded data?",
-                    BuildAllCachesFromSettings,
-                    true));
-            }
-            if (Widgets.ButtonText(buildTexRect, "Build texture cache now"))
-            {
-                Find.WindowStack.Add(new TextureCacheBuildWindow());
-            }
-            if (Widgets.ButtonText(buildXmlRect, "Build XML cache now"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Write XML and language caches from the current loaded data?",
-                    BuildXmlCacheFromMemory,
-                    true));
-            }
-
-            listing.Gap(4f);
-            Rect atlasBuildRow = listing.GetRect(30f);
-            Rect atlasBuildRect = new Rect(atlasBuildRow.x, atlasBuildRow.y, buildButtonWidth, atlasBuildRow.height);
-            if (Widgets.ButtonText(atlasBuildRect, "Build atlas cache now"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Write static atlas cache from the atlases built during this load?",
-                    BuildAtlasCacheFromMemory,
                     true));
             }
 
