@@ -400,6 +400,11 @@ namespace FastLoader
         private static string ReadStringById(BinaryReader reader, string[] strings)
         {
             int id = reader.ReadInt32();
+            if (id == -1)
+            {
+                return null;
+            }
+
             if (id < 0 || id >= strings.Length)
             {
                 throw new InvalidDataException("Invalid DefInjected string id.");
@@ -441,7 +446,11 @@ namespace FastLoader
 
             public int GetId(string value)
             {
-                value = value ?? string.Empty;
+                if (value == null)
+                {
+                    return -1;
+                }
+
                 int id;
                 if (ids.TryGetValue(value, out id))
                 {

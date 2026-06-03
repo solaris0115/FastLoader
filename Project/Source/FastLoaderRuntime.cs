@@ -36,7 +36,7 @@ namespace FastLoader
     internal static class FastLoaderRuntime
     {
         public const string CacheFormatVersion = "1";
-        public const string FastLoaderVersion = "0.2.2";
+        public const string FastLoaderVersion = "0.2.3";
 
         private static CacheData loadedCache;
         private static CacheData lastResolvedXmlSnapshot;
@@ -231,6 +231,11 @@ namespace FastLoader
 
         public static void SaveCacheFromResolvedXml(XmlDocument xmlDoc, Dictionary<XmlNode, LoadableXmlAsset> assetLookup)
         {
+            if (Mode == FastLoaderMode.CacheHit)
+            {
+                return;
+            }
+
             if (string.IsNullOrEmpty(inputHash) || xmlDoc == null || xmlDoc.DocumentElement == null)
             {
                 return;
@@ -374,6 +379,12 @@ namespace FastLoader
                 return false;
             }
 
+            if (HasOnlyUnownedEntries(manifest))
+            {
+                missReason = "cached xml metadata missing mod ownership";
+                return false;
+            }
+
             XmlDocument document = new XmlDocument();
             using (FastProfile.Scope("Try load XML cache: read resolved_defs.xml"))
             {
@@ -401,6 +412,24 @@ namespace FastLoader
 
             manifest.ResolvedDefs = document;
             cache = manifest;
+            return true;
+        }
+
+        private static bool HasOnlyUnownedEntries(CacheData manifest)
+        {
+            if (manifest == null || manifest.Entries == null || manifest.Entries.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < manifest.Entries.Count; i++)
+            {
+                if (!string.IsNullOrEmpty(manifest.Entries[i].PackageId))
+                {
+                    return false;
+                }
+            }
+
             return true;
         }
 
