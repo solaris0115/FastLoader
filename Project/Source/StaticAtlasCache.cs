@@ -104,16 +104,6 @@ namespace FastLoader
             return saved;
         }
 
-        public static void SaveDuringBakeIfRequested(StaticTextureAtlas atlas)
-        {
-            if (!IsAtlasBuildRequestedByCommandLine())
-            {
-                return;
-            }
-
-            Save(atlas);
-        }
-
         public static void DeleteAll()
         {
             currentLoadoutHash = null;
@@ -471,20 +461,6 @@ namespace FastLoader
             return Path.Combine(CacheRootPath, fileName);
         }
 
-        private static bool IsAtlasBuildRequestedByCommandLine()
-        {
-            string[] args = Environment.GetCommandLineArgs();
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (string.Equals(args[i], "-fastloader-build-atlas-cache", StringComparison.OrdinalIgnoreCase))
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
         private static bool IsEnabled()
         {
             return FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled;
@@ -715,12 +691,4 @@ namespace FastLoader
         }
     }
 
-    [HarmonyPatch(typeof(StaticTextureAtlas), "ApplyTextureCompression")]
-    internal static class Patch_StaticTextureAtlas_ApplyTextureCompression_StaticAtlasCache
-    {
-        private static void Postfix(StaticTextureAtlas __instance)
-        {
-            StaticAtlasCache.SaveDuringBakeIfRequested(__instance);
-        }
-    }
 }
