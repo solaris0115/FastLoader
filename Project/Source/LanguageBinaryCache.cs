@@ -28,6 +28,7 @@ namespace FastLoader
         private const int MaxKeyedEntries = 1000000;
         private const int MaxStringFiles = 200000;
         private const int MaxStringLinesPerFile = 1000000;
+        private const string DefInjectedCacheExtension = ".finj";
         private static readonly FieldInfo DataIsLoadedField = AccessTools.Field(typeof(LoadedLanguage), "dataIsLoaded");
         private static readonly FieldInfo TmpAlreadyLoadedFilesField = AccessTools.Field(typeof(LoadedLanguage), "tmpAlreadyLoadedFiles");
 
@@ -46,6 +47,12 @@ namespace FastLoader
             try
             {
                 string[] files = Directory.GetFiles(CacheRootPath, "*.flang", SearchOption.TopDirectoryOnly);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    TryDeleteFile(files[i]);
+                }
+
+                files = Directory.GetFiles(CacheRootPath, "*" + DefInjectedCacheExtension, SearchOption.TopDirectoryOnly);
                 for (int i = 0; i < files.Length; i++)
                 {
                     TryDeleteFile(files[i]);
@@ -131,6 +138,11 @@ namespace FastLoader
                 {
                     LanguageCacheFile.Write(cachePath, hash, language);
                 }
+
+                using (FastLoaderProfiler.Scope("FastLoader.DefInjectedCache.Write | " + Describe(language)))
+                {
+                    DefInjectedBinaryCache.Write(GetDefInjectedCachePath(language), language);
+                }
             }
             catch (Exception ex)
             {
@@ -180,6 +192,18 @@ namespace FastLoader
 
             language.defInjections.Clear();
 
+            int defInjectedPackageCount = 0;
+            int defInjectedInjectionCount = 0;
+            bool defInjectedCacheLoaded;
+            using (FastLoaderProfiler.Scope("FastLoader.DefInjectedCache.TryRead | " + Describe(language)))
+            {
+                defInjectedCacheLoaded = DefInjectedBinaryCache.TryRead(
+                    GetDefInjectedCachePath(language),
+                    language,
+                    out defInjectedPackageCount,
+                    out defInjectedInjectionCount);
+            }
+
             DeepProfiler.Start("Loading language data from FastLoader cache: " + language.folderName);
             try
             {
@@ -189,9 +213,21 @@ namespace FastLoader
                     EnsureAlreadyLoadedBucket(language, localDirectory.Item2);
                     QueueLanguageIconLoad(language, localDirectory);
                     CheckOldKeyedFolder(language, localDirectory);
-                    LoadDefInjected(language, localDirectory);
-                    EnsureAllDefTypesHaveDefInjectionPackage(language);
+                    if (!defInjectedCacheLoaded)
+                    {
+                        LoadDefInjected(language, localDirectory);
+                        EnsureAllDefTypesHaveDefInjectionPackage(language);
+                    }
+
                     language.WordInfo.LoadFrom(localDirectory, language);
+                }
+
+                if (defInjectedCacheLoaded)
+                {
+                    EnsureAllDefTypesHaveDefInjectionPackage(language);
+                    Log.Message("[FastLoader] DefInjected cache hit: " + Describe(language) +
+                        ", packages=" + defInjectedPackageCount +
+                        ", injections=" + defInjectedInjectionCount);
                 }
             }
             finally
@@ -343,6 +379,11 @@ namespace FastLoader
         private static string GetCachePath(LoadedLanguage language)
         {
             return Path.Combine(CacheRootPath, "language_" + SanitizeFileName(language.folderName ?? "unknown") + ".flang");
+        }
+
+        private static string GetDefInjectedCachePath(LoadedLanguage language)
+        {
+            return Path.Combine(CacheRootPath, "definjected_" + SanitizeFileName(language.folderName ?? "unknown") + DefInjectedCacheExtension);
         }
 
         private static string SanitizeFileName(string name)

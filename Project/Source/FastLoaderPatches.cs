@@ -4,6 +4,7 @@ using System.IO;
 using System.Reflection;
 using System.Xml;
 using HarmonyLib;
+using RimWorld;
 using UnityEngine;
 using Verse;
 
@@ -25,6 +26,15 @@ namespace FastLoader
             }
 
             return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(MainMenuDrawer), nameof(MainMenuDrawer.Init))]
+    internal static class Patch_MainMenuDrawer_Init_FastLoaderCommandBridge
+    {
+        private static void Postfix()
+        {
+            FastLoaderCommandBridge.ProcessCommandLineBuildRequests();
         }
     }
 
