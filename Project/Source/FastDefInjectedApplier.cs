@@ -148,6 +148,7 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
+                FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Language, Describe(language) + " DefInjected apply failed: " + ex.GetType().Name);
                 Log.Warning("[FastLoader] Fast DefInjected apply failed. Falling back to vanilla language injection.\n" + ex);
                 return false;
             }
@@ -658,7 +659,8 @@ namespace FastLoader
 
         private static bool IsEnabled()
         {
-            return FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled;
+            return !FastLoaderRuntime.IsCacheFallbackActive &&
+                (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
         }
 
         private static string Describe(LoadedLanguage language)

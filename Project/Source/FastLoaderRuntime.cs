@@ -44,6 +44,7 @@ namespace FastLoader
         private static string statusReason;
         private static int parsedDefCount;
         private static DateTime loadStartedUtc;
+        private static bool cacheFallbackActive;
         private static readonly CacheEntry[] EmptyEntries = new CacheEntry[0];
         private static readonly FieldInfo XmlInheritanceResolvedNodesField = typeof(XmlInheritance).GetField("resolvedNodes", BindingFlags.NonPublic | BindingFlags.Static);
 
@@ -56,6 +57,11 @@ namespace FastLoader
         public static string LastInputHash;
         public static int LastParsedDefCount;
         public static double LastLoadElapsedMs;
+
+        public static bool IsCacheFallbackActive
+        {
+            get { return cacheFallbackActive; }
+        }
 
         public static bool IsCacheHit
         {
@@ -140,6 +146,7 @@ namespace FastLoader
             inputHash = null;
             statusReason = null;
             parsedDefCount = 0;
+            cacheFallbackActive = false;
             loadStartedUtc = DateTime.UtcNow;
             FastProfile.Begin();
 
@@ -187,8 +194,15 @@ namespace FastLoader
                 Mode = FastLoaderMode.CacheMiss;
                 statusReason = "hash/cache check exception: " + ex.GetType().Name;
                 FastProfile.SetStatus("MISS", statusReason, inputHash);
+                ActivateVanillaFallback(FastLoaderCacheKind.Xml, statusReason);
                 Log.Warning("[FastLoader] Cache check failed. Falling back to vanilla XML load.\n" + ex);
             }
+        }
+
+        public static void ActivateVanillaFallback(string stage, string detail)
+        {
+            cacheFallbackActive = true;
+            FastLoaderCacheIssueReporter.Report(stage, detail);
         }
 
         private static void TryDeleteFile(string path)

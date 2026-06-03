@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
 using HarmonyLib;
 using RimWorld;
 using UnityEngine;
@@ -51,7 +53,7 @@ namespace FastLoader
             Rect buildAllRect = new Rect(buttonRow.x, buttonRow.y, buttonWidth, buttonRow.height);
             Rect resetAllRect = new Rect(buildAllRect.xMax + gap, buttonRow.y, buttonWidth, buttonRow.height);
 
-            if (Widgets.ButtonText(buildAllRect, "Build all caches now"))
+            if (Widgets.ButtonText(buildAllRect, "Build Cache"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                     "Build XML, language, texture, and atlas caches from the current loaded data?",
@@ -59,12 +61,20 @@ namespace FastLoader
                     true));
             }
 
-            if (Widgets.ButtonText(resetAllRect, "Reset all caches"))
+            if (Widgets.ButtonText(resetAllRect, "Remove Cache"))
             {
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Clear all FastLoader cache files (XML + language + texture + atlas)? Use Build all caches now to create them again.",
+                    "Remove all FastLoader cache files (XML + language + texture + atlas)? Use Build Cache to create them again.",
                     FastLoaderCacheUiActions.ResetAllCaches,
                     true));
+            }
+
+            listing.Gap(4f);
+            Rect openFolderRow = listing.GetRect(30f);
+            Rect openFolderRect = new Rect(openFolderRow.x, openFolderRow.y, buttonWidth, openFolderRow.height);
+            if (Widgets.ButtonText(openFolderRect, "Open Cache Folder"))
+            {
+                OpenCacheFolderFromSettings();
             }
 
             listing.Gap(12f);
@@ -105,6 +115,25 @@ namespace FastLoader
             }
 
             listing.End();
+        }
+
+        private static void OpenCacheFolderFromSettings()
+        {
+            string path = Path.Combine(GenFilePaths.ConfigFolderPath, "FastLoader");
+            try
+            {
+                Directory.CreateDirectory(path);
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = path,
+                    UseShellExecute = true
+                });
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to open cache folder: " + path + "\n" + ex);
+                Messages.Message("Failed to open FastLoader cache folder. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
         }
 
         private static void DeleteXmlCacheFromSettings()

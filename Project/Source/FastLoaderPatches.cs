@@ -63,6 +63,7 @@ namespace FastLoader
         private static void Postfix()
         {
             FastLoaderModUpdateChecker.PollUi();
+            FastLoaderCacheIssueReporter.PollUi();
         }
     }
 
@@ -185,6 +186,7 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
+                FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Xml, "cached XML parse failed: " + ex.GetType().Name);
                 Log.Error("[FastLoader] Cache hit parse failed. This load cannot safely continue from cached XML.\n" + ex);
                 throw;
             }
@@ -274,10 +276,20 @@ namespace FastLoader
                 ModContentHolder<string> strings = StringsField != null ? StringsField.GetValue(__instance) as ModContentHolder<string> : null;
                 if (audioClips == null || textures == null || strings == null || __instance.assetBundles == null)
                 {
+                    FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Texture, "texture cache holder unavailable: " + modDescription);
                     return true;
                 }
 
-                ReloadContentWithCachedTextures(__instance, audioClips, textures, strings, entries, hotReload);
+                try
+                {
+                    ReloadContentWithCachedTextures(__instance, audioClips, textures, strings, entries, hotReload);
+                }
+                catch (Exception ex)
+                {
+                    FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Texture, modDescription + " cached texture reload failed: " + ex.GetType().Name);
+                    Log.Warning("[FastLoader] Texture cache reload failed. Falling back to vanilla content reload for " + modDescription + ".\n" + ex);
+                    return true;
+                }
             }
 
             return false;

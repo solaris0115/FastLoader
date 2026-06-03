@@ -31,6 +31,7 @@ namespace FastLoader
         public int FailedBatchCount;
         public int MissingRemoteCount;
         public string Signature;
+        public List<string> Reasons = new List<string>();
         public List<string> FailedBatchMessages = new List<string>();
         public List<WorkshopUpdatedMod> UpdatedMods = new List<WorkshopUpdatedMod>();
     }
@@ -39,6 +40,7 @@ namespace FastLoader
     {
         private const int BatchSize = 50;
         private const int MaxParallelRequests = 4;
+        private const int MaxRequestAttempts = 3;
         private const int RequestTimeoutMs = 8000;
         private const string Endpoint = "https://api.steampowered.com/ISteamRemoteStorage/GetPublishedFileDetails/v1/";
 
@@ -65,17 +67,22 @@ namespace FastLoader
                 return;
             }
 
-            if (FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit)
-            {
-                return;
-            }
-
             FastLoaderCacheStateData state;
             if (!FastLoaderCacheState.TryRead(out state))
             {
-                Log.Message("[FastLoader] Workshop update check skipped because cache state is missing.");
+                Log.Message("[FastLoader] Cache state check skipped because cache state is missing.");
                 return;
             }
+
+            if (FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit &&
+                string.Equals(FastLoaderRuntime.LastStatusReason, "cache files missing", StringComparison.OrdinalIgnoreCase))
+            {
+                Log.Message("[FastLoader] Cache state check skipped because XML cache files are missing.");
+                return;
+            }
+
+            List<FastLoaderCacheStateMod> workshopMods = GetWorkshopMods(state);
+            int localModCount = state.Mods != null ? Math.Max(0, state.Mods.Count - workshopMods.Count) : 0;
 
             string currentHash;
             try
@@ -90,12 +97,30 @@ namespace FastLoader
 
             if (!string.Equals(state.InputHash, currentHash, StringComparison.OrdinalIgnoreCase))
             {
-                Log.Message("[FastLoader] Workshop update check skipped because mod list changed since cache build.");
+                runningTask = Task.Run(delegate
+                {
+                    WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
+                    result.WorkshopModCount = workshopMods.Count;
+                    result.Reasons.Add("Active mod list/order changed since the cache was built.");
+                    result.Signature = BuildSignature(state, result);
+                    return result;
+                });
                 return;
             }
 
-            List<FastLoaderCacheStateMod> workshopMods = GetWorkshopMods(state);
-            int localModCount = state.Mods != null ? Math.Max(0, state.Mods.Count - workshopMods.Count) : 0;
+            if (FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit)
+            {
+                runningTask = Task.Run(delegate
+                {
+                    WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
+                    result.WorkshopModCount = workshopMods.Count;
+                    result.Reasons.Add("XML cache was not used: " + (FastLoaderRuntime.LastStatusReason ?? "unknown reason"));
+                    result.Signature = BuildSignature(state, result);
+                    return result;
+                });
+                return;
+            }
+
             if (workshopMods.Count == 0)
             {
                 Log.Message("[FastLoader] Workshop update check skipped because no Steam Workshop mods were recorded. Local/untracked mods: " + localModCount);
@@ -132,13 +157,7 @@ namespace FastLoader
             }
 
             LogCheckSummary(result);
-            if (result.Failed)
-            {
-                Log.Warning("[FastLoader] Workshop update check failed. Cache remains usable. " + (result.FailureReason ?? string.Empty));
-                return;
-            }
-
-            if (result.UpdatedMods.Count == 0)
+            if (result.Reasons.Count == 0 && result.UpdatedMods.Count == 0)
             {
                 return;
             }
@@ -175,10 +194,8 @@ namespace FastLoader
         private static WorkshopUpdateCheckResult CheckWorkshopUpdates(FastLoaderCacheStateData state, List<FastLoaderCacheStateMod> workshopMods, int localModCount)
         {
             Stopwatch stopwatch = Stopwatch.StartNew();
-            WorkshopUpdateCheckResult result = new WorkshopUpdateCheckResult();
-            result.ReferenceUtc = state.GetUpdateReferenceUtc();
+            WorkshopUpdateCheckResult result = CreateBaseResult(state, localModCount);
             result.WorkshopModCount = workshopMods.Count;
-            result.LocalModCount = localModCount;
 
             Dictionary<string, List<FastLoaderCacheStateMod>> modsById = new Dictionary<string, List<FastLoaderCacheStateMod>>(StringComparer.Ordinal);
             List<string> ids = new List<string>();
@@ -208,7 +225,7 @@ namespace FastLoader
                 {
                     try
                     {
-                        Dictionary<string, long> batchResult = FetchBatch(batch);
+                        Dictionary<string, long> batchResult = FetchBatchWithRetry(batch);
                         lock (resultLock)
                         {
                             foreach (KeyValuePair<string, long> kvp in batchResult)
@@ -230,9 +247,16 @@ namespace FastLoader
             if (result.FailedBatchCount >= result.BatchCount)
             {
                 result.Failed = true;
-                result.FailureReason = "all Steam request batches failed";
+                result.FailureReason = "all Steam request batches failed after " + MaxRequestAttempts + " attempts";
+                result.Reasons.Add("Steam Workshop update check failed after " + MaxRequestAttempts + " attempts. Cache freshness could not be verified.");
                 result.ElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+                result.Signature = BuildSignature(state, result);
                 return result;
+            }
+
+            if (result.FailedBatchCount > 0)
+            {
+                result.Reasons.Add("Some Steam Workshop update checks failed after " + MaxRequestAttempts + " attempts.");
             }
 
             for (int i = 0; i < ids.Count; i++)
@@ -265,8 +289,26 @@ namespace FastLoader
                 }
             }
 
+            if (result.MissingRemoteCount > 0)
+            {
+                result.Reasons.Add("Some Steam Workshop mods did not return update metadata.");
+            }
+
+            if (result.UpdatedMods.Count > 0)
+            {
+                result.Reasons.Add("Steam Workshop mods were updated after the cache was built.");
+            }
+
             result.Signature = BuildSignature(state, result);
             result.ElapsedMs = stopwatch.Elapsed.TotalMilliseconds;
+            return result;
+        }
+
+        private static WorkshopUpdateCheckResult CreateBaseResult(FastLoaderCacheStateData state, int localModCount)
+        {
+            WorkshopUpdateCheckResult result = new WorkshopUpdateCheckResult();
+            result.ReferenceUtc = state.GetUpdateReferenceUtc();
+            result.LocalModCount = localModCount;
             return result;
         }
 
@@ -296,6 +338,28 @@ namespace FastLoader
                 string response = client.UploadString(Endpoint, "POST", body);
                 return ParseUpdateTimes(response);
             }
+        }
+
+        private static Dictionary<string, long> FetchBatchWithRetry(List<string> ids)
+        {
+            Exception lastException = null;
+            for (int attempt = 1; attempt <= MaxRequestAttempts; attempt++)
+            {
+                try
+                {
+                    return FetchBatch(ids);
+                }
+                catch (Exception ex)
+                {
+                    lastException = ex;
+                    if (attempt < MaxRequestAttempts)
+                    {
+                        System.Threading.Thread.Sleep(250 * attempt);
+                    }
+                }
+            }
+
+            throw lastException ?? new InvalidOperationException("Steam request failed");
         }
 
         private static string BuildFormBody(List<string> ids)
@@ -389,6 +453,12 @@ namespace FastLoader
             builder.Append(state.InputHash ?? string.Empty);
             builder.Append('|');
             builder.Append(state.GetUpdateReferenceUtc().Ticks);
+            for (int i = 0; i < result.Reasons.Count; i++)
+            {
+                builder.Append("|reason:");
+                builder.Append(result.Reasons[i] ?? string.Empty);
+            }
+
             for (int i = 0; i < result.UpdatedMods.Count; i++)
             {
                 WorkshopUpdatedMod mod = result.UpdatedMods[i];
@@ -483,7 +553,7 @@ namespace FastLoader
 
         public override Vector2 InitialSize
         {
-            get { return new Vector2(680f, 400f); }
+            get { return new Vector2(680f, 480f); }
         }
 
         public override void DoWindowContents(Rect inRect)
@@ -492,35 +562,29 @@ namespace FastLoader
             Widgets.Label(new Rect(0f, 0f, inRect.width, 32f), "FastLoader cache notice");
 
             int updatedCount = result != null && result.UpdatedMods != null ? result.UpdatedMods.Count : 0;
+            int reasonCount = result != null && result.Reasons != null ? result.Reasons.Count : 0;
             Text.Font = GameFont.Small;
             Rect textRect = new Rect(0f, 42f, inRect.width, 84f);
             Widgets.Label(textRect,
-                "Steam Workshop mods were updated after the FastLoader cache was built.\n" +
-                "The game already loaded with the existing cache. Updated mods: " + updatedCount + ".\n" +
-                "Delete only affects the next load unless you rebuild now.");
+                "FastLoader found cache state warnings after the game reached the main menu.\n" +
+                "Reasons: " + reasonCount + ". Updated Workshop mods: " + updatedCount + ".\n" +
+                "Continue with the current cache or build caches again from the current loaded data.");
 
-            Rect listRect = new Rect(0f, 132f, inRect.width, 184f);
+            Rect listRect = new Rect(0f, 132f, inRect.width, 260f);
             Widgets.DrawMenuSection(listRect);
-            DrawUpdatedMods(listRect.ContractedBy(8f));
+            DrawReasonsAndUpdatedMods(listRect.ContractedBy(8f));
 
             const float buttonWidth = 150f;
             const float buttonHeight = 34f;
             const float gap = 8f;
             float y = inRect.height - buttonHeight;
             Rect continueRect = new Rect(inRect.width - buttonWidth, y, buttonWidth, buttonHeight);
-            Rect deleteRect = new Rect(continueRect.x - gap - buttonWidth, y, buttonWidth, buttonHeight);
-            Rect rebuildRect = new Rect(deleteRect.x - gap - buttonWidth, y, buttonWidth, buttonHeight);
+            Rect rebuildRect = new Rect(continueRect.x - gap - buttonWidth, y, buttonWidth, buttonHeight);
 
-            if (Widgets.ButtonText(rebuildRect, "Rebuild caches"))
+            if (Widgets.ButtonText(rebuildRect, "Build Cache"))
             {
                 Close();
                 FastLoaderCacheUiActions.StartBuildAllCaches();
-            }
-
-            if (Widgets.ButtonText(deleteRect, "Delete caches"))
-            {
-                Close();
-                FastLoaderCacheUiActions.ResetAllCaches();
             }
 
             if (Widgets.ButtonText(continueRect, "Continue"))
@@ -530,29 +594,46 @@ namespace FastLoader
             }
         }
 
-        private void DrawUpdatedMods(Rect rect)
+        private void DrawReasonsAndUpdatedMods(Rect rect)
         {
+            List<string> reasons = result != null ? result.Reasons : null;
             List<WorkshopUpdatedMod> mods = result != null ? result.UpdatedMods : null;
-            int count = mods != null ? mods.Count : 0;
-            int visibleCount = Math.Min(count, MaxVisibleMods);
-            float rowHeight = 18f;
-            for (int i = 0; i < visibleCount; i++)
+            float rowHeight = 22f;
+            int row = 0;
+
+            if (reasons != null)
             {
-                WorkshopUpdatedMod mod = mods[i];
-                Rect rowRect = new Rect(rect.x, rect.y + i * rowHeight, rect.width, rowHeight);
-                if (i % 2 == 1)
+                for (int i = 0; i < reasons.Count && row < MaxVisibleMods; i++)
                 {
-                    Widgets.DrawLightHighlight(rowRect);
+                    DrawRow(rect, row, rowHeight, "Reason: " + reasons[i]);
+                    row++;
                 }
-
-                Widgets.Label(new Rect(rowRect.x + 4f, rowRect.y, rowRect.width - 8f, rowRect.height), FormatMod(mod));
             }
 
-            if (count > MaxVisibleMods)
+            int count = mods != null ? mods.Count : 0;
+            for (int i = 0; i < count && row < MaxVisibleMods; i++)
             {
-                Rect moreRect = new Rect(rect.x + 4f, rect.y + MaxVisibleMods * rowHeight + 4f, rect.width - 8f, 24f);
-                Widgets.Label(moreRect, "... and " + (count - MaxVisibleMods) + " more");
+                DrawRow(rect, row, rowHeight, FormatMod(mods[i]));
+                row++;
             }
+
+            int hidden = Math.Max(0, (reasons != null ? reasons.Count : 0) + count - row);
+            if (hidden > 0)
+            {
+                Rect moreRect = new Rect(rect.x + 4f, rect.y + row * rowHeight + 4f, rect.width - 8f, 24f);
+                Widgets.Label(moreRect, "... and " + hidden + " more");
+            }
+        }
+
+        private static void DrawRow(Rect rect, int index, float rowHeight, string text)
+        {
+            Rect rowRect = new Rect(rect.x, rect.y + index * rowHeight, rect.width, rowHeight);
+            if (index % 2 == 1)
+            {
+                Widgets.DrawLightHighlight(rowRect);
+            }
+
+            Widgets.Label(new Rect(rowRect.x + 4f, rowRect.y, rowRect.width - 8f, rowRect.height), text);
         }
 
         private static string FormatMod(WorkshopUpdatedMod mod)

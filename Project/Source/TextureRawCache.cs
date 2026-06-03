@@ -81,6 +81,11 @@ namespace FastLoader
                 return false;
             }
 
+            if (FastLoaderRuntime.IsCacheFallbackActive)
+            {
+                return false;
+            }
+
             string packageId = NormalizePackageId(mod.PackageId);
 
             if (loadedCaches != null && loadedCaches.TryGetValue(packageId, out entries))

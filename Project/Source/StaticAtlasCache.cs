@@ -82,6 +82,7 @@ namespace FastLoader
                 }
                 catch (Exception ex)
                 {
+                    FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Atlas, "static atlas restore failed for " + atlas.groupKey + ": " + ex.GetType().Name);
                     Log.Warning("[FastLoader] Static atlas cache restore failed for " + atlas.groupKey + ". Falling back to vanilla bake.\n" + ex);
                     return false;
                 }
@@ -463,7 +464,8 @@ namespace FastLoader
 
         private static bool IsEnabled()
         {
-            return FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled;
+            return !FastLoaderRuntime.IsCacheFallbackActive &&
+                (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
         }
 
         private static void Write(string path, AtlasCacheRecord record)
