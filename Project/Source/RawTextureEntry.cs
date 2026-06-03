@@ -15,15 +15,21 @@ namespace FastLoader
         public int FilterMode;
         public int AnisoLevel;
         public string Name;
+        public bool AtlasStub;
         public byte[] RawData;
     }
 
     internal static class TextureCacheFile
     {
         private static readonly byte[] Magic = Encoding.ASCII.GetBytes("FLTX");
-        private const int FormatVersion = 1;
+        private const int FormatVersion = 2;
 
         public static void Write(string path, string hash, List<RawTextureEntry> entries)
+        {
+            Write(path, hash, entries, null);
+        }
+
+        public static void Write(string path, string hash, List<RawTextureEntry> entries, List<string> atlasDependencies)
         {
             string directory = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(directory))
@@ -40,6 +46,14 @@ namespace FastLoader
                 WriteFixedString(writer, hash, 64);
                 writer.Write(entries.Count);
                 writer.Write(DateTime.UtcNow.Ticks);
+                writer.Write(atlasDependencies != null ? atlasDependencies.Count : 0);
+                if (atlasDependencies != null)
+                {
+                    for (int i = 0; i < atlasDependencies.Count; i++)
+                    {
+                        writer.Write(atlasDependencies[i] ?? string.Empty);
+                    }
+                }
 
                 for (int i = 0; i < entries.Count; i++)
                 {
@@ -52,6 +66,7 @@ namespace FastLoader
                     writer.Write(entry.MipmapCount);
                     writer.Write(entry.FilterMode);
                     writer.Write(entry.AnisoLevel);
+                    writer.Write(entry.AtlasStub);
                     writer.Write(entry.RawData != null ? entry.RawData.Length : 0);
                 }
 
@@ -112,6 +127,23 @@ namespace FastLoader
                         return false;
                     }
 
+                    int atlasDependencyCount = reader.ReadInt32();
+                    if (atlasDependencyCount < 0 || atlasDependencyCount > 10000)
+                    {
+                        return false;
+                    }
+
+                    List<string> atlasDependencies = new List<string>(atlasDependencyCount);
+                    for (int i = 0; i < atlasDependencyCount; i++)
+                    {
+                        atlasDependencies.Add(reader.ReadString());
+                    }
+
+                    if (!StaticAtlasCache.AreCacheDependenciesAvailable(atlasDependencies))
+                    {
+                        return false;
+                    }
+
                     List<RawTextureEntry> result = new List<RawTextureEntry>(count);
                     int[] rawDataLengths = new int[count];
 
@@ -126,6 +158,7 @@ namespace FastLoader
                         entry.MipmapCount = reader.ReadInt32();
                         entry.FilterMode = reader.ReadInt32();
                         entry.AnisoLevel = reader.ReadInt32();
+                        entry.AtlasStub = reader.ReadBoolean();
                         rawDataLengths[i] = reader.ReadInt32();
                         result.Add(entry);
                     }
@@ -144,6 +177,10 @@ namespace FastLoader
                         else
                         {
                             result[i].RawData = Array.Empty<byte>();
+                            if (!result[i].AtlasStub)
+                            {
+                                return false;
+                            }
                         }
                     }
 

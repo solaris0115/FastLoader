@@ -418,12 +418,22 @@ namespace FastLoader
                     continue;
                 }
 
-                Texture2D texture = new Texture2D(entry.Width, entry.Height, (TextureFormat)entry.TextureFormat, entry.MipmapCount > 1);
-                texture.LoadRawTextureData(entry.RawData);
+                Texture2D texture = entry.AtlasStub
+                    ? new Texture2D(entry.Width, entry.Height, TextureFormat.RGBA32, false)
+                    : new Texture2D(entry.Width, entry.Height, (TextureFormat)entry.TextureFormat, entry.MipmapCount > 1);
+                if (!entry.AtlasStub)
+                {
+                    texture.LoadRawTextureData(entry.RawData);
+                }
+
                 texture.name = entry.Name;
                 texture.filterMode = (FilterMode)entry.FilterMode;
                 texture.anisoLevel = entry.AnisoLevel;
                 texture.Apply(false, true);
+                if (entry.AtlasStub)
+                {
+                    TextureRawCache.RegisterAtlasStubTexture(texture);
+                }
 
                 holder.contentList.Add(entry.InternalPath, texture);
                 AddToTrie(holder, entry.InternalPath);

@@ -75,8 +75,8 @@ namespace FastLoader
             using (FastLoaderRuntime.ManualBuildScope())
             {
                 FastLoaderBuildResult result = BuildXmlAndLanguageCaches();
-                result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
                 result.AtlasesSaved = StaticAtlasCache.BuildFromCurrentAtlases();
+                result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
                 FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, result.TexturesSaved);
                 FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, result.AtlasesSaved > 0, result.AtlasesSaved);
                 Log.Message("[FastLoader] BuildAllCaches completed: " + result);

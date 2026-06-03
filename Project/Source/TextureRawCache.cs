@@ -10,10 +10,11 @@ namespace FastLoader
 {
     internal static class TextureRawCache
     {
-        private const string TextureCacheHashVersion = "0.2.2";
+        private const string TextureCacheHashVersion = "0.2.5";
         private static readonly string[] TextureExtensions = new string[] { ".png", ".jpg", ".jpeg", ".psd" };
 
         private static Dictionary<string, List<RawTextureEntry>> loadedCaches;
+        private static HashSet<int> atlasStubTextureIds;
         private static int cacheHitCount;
         private static int cacheMissCount;
         private static int cacheHitEntryCount;
@@ -146,6 +147,11 @@ namespace FastLoader
 
         public static void SaveCacheForMod(ModContentPack mod, List<RawTextureEntry> entries)
         {
+            SaveCacheForMod(mod, entries, null);
+        }
+
+        public static void SaveCacheForMod(ModContentPack mod, List<RawTextureEntry> entries, List<string> atlasDependencies)
+        {
             if (mod == null || entries == null || entries.Count == 0)
             {
                 return;
@@ -159,7 +165,7 @@ namespace FastLoader
             {
                 using (FastProfile.Scope("TextureRawCache: Write [" + packageId + "]"))
                 {
-                    TextureCacheFile.Write(cachePath, hash, entries);
+                    TextureCacheFile.Write(cachePath, hash, entries, atlasDependencies);
                 }
 
                 Log.Message("[FastLoader] Texture raw cache saved for " + packageId + ". Entries: " + entries.Count);
@@ -285,9 +291,44 @@ namespace FastLoader
             ResetRuntimeStatus();
         }
 
+        public static void RegisterAtlasStubTexture(UnityEngine.Texture2D texture)
+        {
+            if (texture == null)
+            {
+                return;
+            }
+
+            if (atlasStubTextureIds == null)
+            {
+                atlasStubTextureIds = new HashSet<int>();
+            }
+
+            atlasStubTextureIds.Add(texture.GetInstanceID());
+        }
+
+        public static bool ContainsAtlasStubTexture(List<UnityEngine.Texture2D> textures)
+        {
+            if (textures == null || atlasStubTextureIds == null || atlasStubTextureIds.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < textures.Count; i++)
+            {
+                UnityEngine.Texture2D texture = textures[i];
+                if (texture != null && atlasStubTextureIds.Contains(texture.GetInstanceID()))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public static void ResetRuntimeStatus()
         {
             loadedCaches = null;
+            atlasStubTextureIds = null;
             cacheHitCount = 0;
             cacheMissCount = 0;
             cacheHitEntryCount = 0;
@@ -372,6 +413,8 @@ namespace FastLoader
         internal sealed class TextureBuildSession
         {
             private readonly List<BuildModState> mods = new List<BuildModState>();
+            private readonly HashSet<int> atlasTextureIds;
+            private readonly List<string> atlasDependencies;
             private List<KeyValuePair<string, UnityEngine.Texture2D>> currentTextures;
             private List<RawTextureEntry> currentEntries;
             private BuildModState currentMod;
@@ -386,6 +429,18 @@ namespace FastLoader
 
             public TextureBuildSession()
             {
+                if (StaticAtlasCache.TryGetCurrentAtlasCacheDependencies(out atlasDependencies))
+                {
+                    atlasTextureIds = StaticAtlasCache.GetCurrentAtlasTextureInstanceIds();
+                    Log.Message("[FastLoader] Texture cache build will store static atlas textures as stubs. Atlas textures: " + atlasTextureIds.Count + ", dependencies: " + atlasDependencies.Count);
+                }
+                else
+                {
+                    atlasTextureIds = new HashSet<int>();
+                    atlasDependencies = new List<string>();
+                    Log.Message("[FastLoader] Texture cache build will keep full texture payloads because static atlas cache dependencies are not complete.");
+                }
+
                 List<ModContentPack> runningMods = LoadedModManager.RunningModsListForReading;
                 for (int i = 0; i < runningMods.Count; i++)
                 {
@@ -552,6 +607,24 @@ namespace FastLoader
 
                     try
                     {
+                        if (atlasTextureIds.Contains(tex.GetInstanceID()))
+                        {
+                            currentEntries.Add(new RawTextureEntry
+                            {
+                                InternalPath = kvp.Key,
+                                Name = tex.name ?? string.Empty,
+                                Width = tex.width,
+                                Height = tex.height,
+                                TextureFormat = (int)UnityEngine.TextureFormat.RGBA32,
+                                MipmapCount = 1,
+                                FilterMode = (int)tex.filterMode,
+                                AnisoLevel = tex.anisoLevel,
+                                AtlasStub = true,
+                                RawData = Array.Empty<byte>()
+                            });
+                            continue;
+                        }
+
                         int capturedFormat;
                         byte[] rawData = ReadTextureRawFromGPU(tex, out capturedFormat);
                         if (rawData == null || rawData.Length == 0)
@@ -569,6 +642,7 @@ namespace FastLoader
                             MipmapCount = 1,
                             FilterMode = (int)tex.filterMode,
                             AnisoLevel = tex.anisoLevel,
+                            AtlasStub = false,
                             RawData = rawData
                         });
                     }
@@ -588,7 +662,7 @@ namespace FastLoader
 
                 if (currentEntries != null && currentEntries.Count > 0)
                 {
-                    SaveCacheForMod(currentMod.Mod, currentEntries);
+                    SaveCacheForMod(currentMod.Mod, currentEntries, atlasDependencies);
                     if (HasCurrentCacheInfo(currentMod.Mod))
                     {
                         cachedModCount++;

@@ -17,7 +17,7 @@ namespace FastLoader
     {
         private const int Magic = 0x54414C46;
         private const int FormatVersion = 4;
-        private const string HashVersion = "FastLoaderStaticAtlasV4StripedReadback";
+        private const string HashVersion = "FastLoaderStaticAtlasV5StableTextureIdentity";
         private const string CacheExtension = ".atlascache";
         private const int MaxTextureChunkBytes = 32 * 1024 * 1024;
         private const long MaxTexturePayloadBytes = 1024L * 1024L * 1024L;
@@ -64,12 +64,14 @@ namespace FastLoader
                     if (!TryRead(path, hash, out record))
                     {
                         Log.Warning("[FastLoader] Static atlas cache restore skipped for " + atlas.groupKey + ": cache record is invalid.");
+                        EnsureAtlasStubDoesNotBake(atlas, textures, "cache record is invalid");
                         return false;
                     }
 
                     if (record.UvRects.Count != textures.Count)
                     {
                         Log.Warning("[FastLoader] Static atlas cache restore skipped for " + atlas.groupKey + ": texture count changed.");
+                        EnsureAtlasStubDoesNotBake(atlas, textures, "texture count changed");
                         return false;
                     }
 
@@ -78,6 +80,7 @@ namespace FastLoader
                     if (colorTexture == null)
                     {
                         Log.Warning("[FastLoader] Static atlas cache restore skipped for " + atlas.groupKey + ": color texture restore returned null.");
+                        EnsureAtlasStubDoesNotBake(atlas, textures, "color texture restore returned null");
                         return false;
                     }
 
@@ -89,6 +92,12 @@ namespace FastLoader
                 }
                 catch (Exception ex)
                 {
+                    if (TextureRawCache.ContainsAtlasStubTexture(textures))
+                    {
+                        Log.Error("[FastLoader] Static atlas cache restore failed while source textures are atlas stubs. This load cannot safely bake the atlas from placeholder textures.\n" + ex);
+                        throw;
+                    }
+
                     FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Atlas, "static atlas restore failed for " + atlas.groupKey + ": " + ex.GetType().Name);
                     Log.Warning("[FastLoader] Static atlas cache restore failed for " + atlas.groupKey + ". Falling back to vanilla bake.\n" + ex);
                     return false;
@@ -110,6 +119,88 @@ namespace FastLoader
 
             Log.Message("[FastLoader] Static atlas cache build completed. Atlases: " + saved);
             return saved;
+        }
+
+        public static HashSet<int> GetCurrentAtlasTextureInstanceIds()
+        {
+            HashSet<int> result = new HashSet<int>();
+            List<StaticTextureAtlas> atlases = GetCurrentAtlases();
+            for (int i = 0; i < atlases.Count; i++)
+            {
+                List<Texture2D> textures = GetTextures(atlases[i]);
+                if (textures == null)
+                {
+                    continue;
+                }
+
+                for (int j = 0; j < textures.Count; j++)
+                {
+                    Texture2D texture = textures[j];
+                    if (texture != null)
+                    {
+                        result.Add(texture.GetInstanceID());
+                    }
+                }
+            }
+
+            return result;
+        }
+
+        public static bool TryGetCurrentAtlasCacheDependencies(out List<string> dependencies)
+        {
+            dependencies = new List<string>();
+            List<StaticTextureAtlas> atlases = GetCurrentAtlases();
+            if (atlases.Count == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < atlases.Count; i++)
+            {
+                StaticTextureAtlas atlas = atlases[i];
+                List<Texture2D> textures = GetTextures(atlas);
+                if (textures == null || textures.Count == 0)
+                {
+                    return false;
+                }
+
+                string hash = ComputeAtlasHash(atlas, textures);
+                string path = GetCachePath(hash);
+                if (!File.Exists(path))
+                {
+                    dependencies.Clear();
+                    return false;
+                }
+
+                dependencies.Add(Path.GetFileName(path));
+            }
+
+            return dependencies.Count > 0;
+        }
+
+        public static bool AreCacheDependenciesAvailable(List<string> dependencies)
+        {
+            if (dependencies == null || dependencies.Count == 0)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < dependencies.Count; i++)
+            {
+                string dependency = dependencies[i];
+                if (string.IsNullOrEmpty(dependency))
+                {
+                    return false;
+                }
+
+                string path = Path.Combine(CacheRootPath, dependency);
+                if (!File.Exists(path))
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         public static void DeleteAll()
@@ -248,6 +339,16 @@ namespace FastLoader
             }
 
             TilesField.SetValue(atlas, tiles);
+        }
+
+        private static void EnsureAtlasStubDoesNotBake(StaticTextureAtlas atlas, List<Texture2D> textures, string reason)
+        {
+            if (!TextureRawCache.ContainsAtlasStubTexture(textures))
+            {
+                return;
+            }
+
+            throw new InvalidOperationException("Static atlas cache restore is required because source textures were stored as FastLoader atlas stubs. Atlas=" + atlas.groupKey + ", reason=" + reason);
         }
 
         private static TexturePayload CaptureTexture(Texture2D texture)
@@ -586,8 +687,6 @@ namespace FastLoader
                     AppendHash(sha, texture != null ? texture.name ?? string.Empty : string.Empty);
                     AppendHash(sha, texture != null ? texture.width.ToString() : "0");
                     AppendHash(sha, texture != null ? texture.height.ToString() : "0");
-                    AppendHash(sha, texture != null ? ((int)texture.graphicsFormat).ToString() : "0");
-                    AppendHash(sha, texture != null ? texture.mipmapCount.ToString() : "0");
                 }
 
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
