@@ -16,8 +16,8 @@ namespace FastLoader
     internal static class StaticAtlasCache
     {
         private const int Magic = 0x54414C46;
-        private const int FormatVersion = 4;
-        private const string HashVersion = "FastLoaderStaticAtlasV4StripedReadback";
+        private const int FormatVersion = 5;
+        private const string HashVersion = "FastLoaderStaticAtlasV5Lz4StripedReadback";
         private const string CacheExtension = ".atlascache";
         private const int MaxTextureChunkBytes = 32 * 1024 * 1024;
         private const long MaxTexturePayloadBytes = 1024L * 1024L * 1024L;
@@ -586,8 +586,6 @@ namespace FastLoader
                     AppendHash(sha, texture != null ? texture.name ?? string.Empty : string.Empty);
                     AppendHash(sha, texture != null ? texture.width.ToString() : "0");
                     AppendHash(sha, texture != null ? texture.height.ToString() : "0");
-                    AppendHash(sha, texture != null ? ((int)texture.graphicsFormat).ToString() : "0");
-                    AppendHash(sha, texture != null ? texture.mipmapCount.ToString() : "0");
                 }
 
                 sha.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
@@ -720,7 +718,7 @@ namespace FastLoader
             writer.Write(texture.MipMapBias);
             if (texture.Chunks != null && texture.Chunks.Count > 0)
             {
-                writer.Write((byte)1);
+                writer.Write((byte)3);
                 writer.Write(texture.TotalRawLength);
                 writer.Write(texture.Chunks.Count);
                 for (int i = 0; i < texture.Chunks.Count; i++)
@@ -730,15 +728,25 @@ namespace FastLoader
                     writer.Write(chunk.Y);
                     writer.Write(chunk.Width);
                     writer.Write(chunk.Height);
-                    writer.Write(chunk.RawData.Length);
-                    writer.Write(chunk.RawData);
+                    WriteCompressedBlock(writer, chunk.RawData, MaxTextureChunkBytes);
                 }
             }
             else
             {
-                writer.Write((byte)0);
-                writer.Write(texture.RawData.Length);
-                writer.Write(texture.RawData);
+                byte[] compressed = FastLz4Block.TryCompress(texture.RawData);
+                if (compressed != null)
+                {
+                    writer.Write((byte)2);
+                    writer.Write(texture.RawData.Length);
+                    writer.Write(compressed.Length);
+                    writer.Write(compressed);
+                }
+                else
+                {
+                    writer.Write((byte)0);
+                    writer.Write(texture.RawData.Length);
+                    writer.Write(texture.RawData);
+                }
             }
         }
 
@@ -768,6 +776,28 @@ namespace FastLoader
                 {
                     throw new EndOfStreamException("Static atlas raw texture data was truncated.");
                 }
+            }
+            else if (storageKind == 2)
+            {
+                int rawLength = reader.ReadInt32();
+                if (rawLength <= 0 || rawLength > MaxTexturePayloadBytes)
+                {
+                    throw new InvalidDataException("Invalid compressed static atlas raw texture length: " + rawLength);
+                }
+
+                int storedLength = reader.ReadInt32();
+                if (storedLength <= 0 || storedLength > MaxTexturePayloadBytes)
+                {
+                    throw new InvalidDataException("Invalid compressed static atlas stored texture length: " + storedLength);
+                }
+
+                byte[] compressed = reader.ReadBytes(storedLength);
+                if (compressed.Length != storedLength)
+                {
+                    throw new EndOfStreamException("Static atlas compressed raw texture data was truncated.");
+                }
+
+                texture.RawData = FastLz4Block.Decompress(compressed, rawLength);
             }
             else if (storageKind == 1)
             {
@@ -807,12 +837,133 @@ namespace FastLoader
                     texture.Chunks.Add(chunk);
                 }
             }
+            else if (storageKind == 3)
+            {
+                int totalLength = reader.ReadInt32();
+                if (totalLength <= 0 || totalLength > MaxTexturePayloadBytes)
+                {
+                    throw new InvalidDataException("Invalid chunked static atlas raw texture length: " + totalLength);
+                }
+
+                int chunkCount = reader.ReadInt32();
+                if (chunkCount <= 0 || chunkCount > MaxTextureChunkCount)
+                {
+                    throw new InvalidDataException("Invalid static atlas raw texture chunk count: " + chunkCount);
+                }
+
+                texture.TotalRawLength = totalLength;
+                texture.RawData = ReadCompressedChunkedRawData(reader, texture, totalLength, chunkCount);
+            }
             else
             {
                 throw new InvalidDataException("Invalid static atlas texture storage kind: " + storageKind);
             }
 
             return texture;
+        }
+
+        private static byte[] ReadCompressedChunkedRawData(BinaryReader reader, TexturePayload texture, int totalLength, int chunkCount)
+        {
+            if ((GraphicsFormat)texture.GraphicsFormat != GraphicsFormat.R8G8B8A8_UNorm)
+            {
+                throw new InvalidDataException("Unsupported compressed chunked static atlas graphics format: " + texture.GraphicsFormat);
+            }
+
+            byte[] rawData = new byte[totalLength];
+            int bytesPerPixel = 4;
+            int targetStride = texture.Width * bytesPerPixel;
+            for (int i = 0; i < chunkCount; i++)
+            {
+                int x = reader.ReadInt32();
+                int y = reader.ReadInt32();
+                int width = reader.ReadInt32();
+                int height = reader.ReadInt32();
+                byte[] chunkData = ReadCompressedBlock(reader, MaxTextureChunkBytes);
+                int sourceStride = width * bytesPerPixel;
+                int expectedLength = sourceStride * height;
+                if (chunkData.Length != expectedLength ||
+                    x < 0 ||
+                    y < 0 ||
+                    width <= 0 ||
+                    height <= 0 ||
+                    x + width > texture.Width ||
+                    y + height > texture.Height)
+                {
+                    throw new InvalidDataException("Invalid compressed static atlas raw texture chunk.");
+                }
+
+                if (x == 0 && width == texture.Width)
+                {
+                    Buffer.BlockCopy(chunkData, 0, rawData, y * targetStride, expectedLength);
+                    continue;
+                }
+
+                for (int row = 0; row < height; row++)
+                {
+                    int sourceOffset = row * sourceStride;
+                    int targetOffset = ((y + row) * texture.Width + x) * bytesPerPixel;
+                    Buffer.BlockCopy(chunkData, sourceOffset, rawData, targetOffset, sourceStride);
+                }
+            }
+
+            return rawData;
+        }
+
+        private static void WriteCompressedBlock(BinaryWriter writer, byte[] rawData, int maxRawBytes)
+        {
+            if (rawData == null || rawData.Length <= 0 || rawData.Length > maxRawBytes)
+            {
+                throw new InvalidDataException("Invalid static atlas block length.");
+            }
+
+            byte[] compressed = FastLz4Block.TryCompress(rawData);
+            writer.Write(rawData.Length);
+            if (compressed != null)
+            {
+                writer.Write(true);
+                writer.Write(compressed.Length);
+                writer.Write(compressed);
+            }
+            else
+            {
+                writer.Write(false);
+                writer.Write(rawData.Length);
+                writer.Write(rawData);
+            }
+        }
+
+        private static byte[] ReadCompressedBlock(BinaryReader reader, int maxRawBytes)
+        {
+            int rawLength = reader.ReadInt32();
+            if (rawLength <= 0 || rawLength > maxRawBytes)
+            {
+                throw new InvalidDataException("Invalid static atlas block raw length: " + rawLength);
+            }
+
+            bool compressed = reader.ReadBoolean();
+            int storedLength = reader.ReadInt32();
+            if (storedLength <= 0 || storedLength > maxRawBytes)
+            {
+                throw new InvalidDataException("Invalid static atlas block stored length: " + storedLength);
+            }
+
+            byte[] stored = reader.ReadBytes(storedLength);
+            if (stored.Length != storedLength)
+            {
+                throw new EndOfStreamException("Static atlas block data was truncated.");
+            }
+
+            if (!compressed)
+            {
+                if (storedLength != rawLength)
+                {
+                    throw new InvalidDataException("Static atlas raw block length mismatch.");
+                }
+
+                return stored;
+            }
+
+            return FastLz4Block.Decompress(stored, rawLength);
         }
 
         private static void TryDeleteFile(string path)
