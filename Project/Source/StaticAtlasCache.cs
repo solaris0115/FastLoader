@@ -158,10 +158,24 @@ namespace FastLoader
                     record.HasMask = atlas.groupKey.hasMask;
                     record.TextureCount = textures.Count;
                     record.ColorTexture = CaptureTexture(colorTexture);
-                    record.MaskTexture = maskTexture != null ? CaptureTexture(maskTexture) : null;
                     if (record.ColorTexture == null)
                     {
+                        Log.Warning("[FastLoader] Static atlas cache skipped for " + atlas.groupKey + ": color atlas texture is not readable.");
                         return false;
+                    }
+
+                    if (maskTexture != null)
+                    {
+                        record.MaskTexture = CaptureTexture(maskTexture);
+                        if (record.MaskTexture == null)
+                        {
+                            Log.Warning("[FastLoader] Static atlas cache skipped for " + atlas.groupKey + ": mask atlas texture is not readable.");
+                            return false;
+                        }
+                    }
+                    else
+                    {
+                        record.MaskTexture = null;
                     }
 
                     for (int i = 0; i < textures.Count; i++)
@@ -252,7 +266,13 @@ namespace FastLoader
             payload.RawData = ReadRawTextureData(texture, payload.MipCount);
             if (payload.RawData == null || payload.RawData.Length == 0)
             {
-                payload = CaptureReadableCopy(texture);
+                return CaptureRenderTextureCopy(texture);
+            }
+
+            if (payload.RawData.Length > 1024 * 1024 * 1024)
+            {
+                Log.Warning("[FastLoader] Static atlas texture capture skipped for " + texture.name + ": raw texture data is too large.");
+                return null;
             }
 
             return payload;
@@ -269,6 +289,11 @@ namespace FastLoader
             }
             catch
             {
+            }
+
+            if (GraphicsFormatUtility.IsCompressedFormat(texture.graphicsFormat))
+            {
+                return null;
             }
 
             try
@@ -313,7 +338,7 @@ namespace FastLoader
             }
         }
 
-        private static TexturePayload CaptureReadableCopy(Texture2D source)
+        private static TexturePayload CaptureRenderTextureCopy(Texture2D source)
         {
             RenderTexture rt = RenderTexture.GetTemporary(
                 source.width,
@@ -322,19 +347,27 @@ namespace FastLoader
                 RenderTextureFormat.ARGB32,
                 RenderTextureReadWrite.Default);
 
-            RenderTexture previous = RenderTexture.active;
-            Texture2D readable = null;
             try
             {
                 Graphics.Blit(source, rt);
-                RenderTexture.active = rt;
-                readable = new Texture2D(source.width, source.height, TextureFormat.RGBA32, true);
-                readable.ReadPixels(new Rect(0, 0, source.width, source.height), 0, 0);
-                readable.Apply(true, false);
-
-                byte[] rawData = readable.GetRawTextureData();
-                if (rawData == null || rawData.Length == 0 || rawData.Length > 1024 * 1024 * 1024)
+                AsyncGPUReadbackRequest request = AsyncGPUReadback.Request(rt, 0, TextureFormat.RGBA32);
+                request.WaitForCompletion();
+                if (request.hasError)
                 {
+                    Log.Warning("[FastLoader] Static atlas render texture readback failed for " + source.name + ".");
+                    return null;
+                }
+
+                var data = request.GetData<byte>();
+                byte[] rawData = new byte[data.Length];
+                for (int i = 0; i < data.Length; i++)
+                {
+                    rawData[i] = data[i];
+                }
+
+                if (rawData.Length == 0 || rawData.Length > 1024 * 1024 * 1024)
+                {
+                    Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": raw texture data is invalid.");
                     return null;
                 }
 
@@ -343,8 +376,8 @@ namespace FastLoader
                     Name = source.name ?? string.Empty,
                     Width = source.width,
                     Height = source.height,
-                    GraphicsFormat = (int)readable.graphicsFormat,
-                    MipCount = readable.mipmapCount,
+                    GraphicsFormat = (int)GraphicsFormat.R8G8B8A8_UNorm,
+                    MipCount = 1,
                     FilterMode = (int)source.filterMode,
                     WrapMode = (int)source.wrapMode,
                     AnisoLevel = source.anisoLevel,
@@ -354,17 +387,12 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Static atlas readable copy capture failed for " + source.name + ": " + ex.Message);
+                Log.Warning("[FastLoader] Static atlas render texture capture failed for " + source.name + ": " + ex.Message);
                 return null;
             }
             finally
             {
-                RenderTexture.active = previous;
                 RenderTexture.ReleaseTemporary(rt);
-                if (readable != null)
-                {
-                    UnityEngine.Object.Destroy(readable);
-                }
             }
         }
 

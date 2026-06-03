@@ -733,7 +733,7 @@ namespace FastLoader
                 result.AtlasesSaved = FastLoaderBridge.BuildStaticAtlasCache();
                 if (result.AtlasesSaved <= 0)
                 {
-                    throw new InvalidOperationException("Atlas cache build failed.");
+                    Log.Warning("[FastLoader] Static atlas cache was not built. Continuing Build Cache without atlas cache.");
                 }
 
                 Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Atlas caches: " + result.AtlasesSaved + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);

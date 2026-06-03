@@ -53,7 +53,7 @@ namespace FastLoader
         public static int BuildStaticAtlasCache()
         {
             int atlases = StaticAtlasCache.BuildFromCurrentAtlases();
-            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, true, atlases);
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, atlases > 0, atlases);
             Log.Message("[FastLoader] BuildStaticAtlasCache completed: atlases=" + atlases);
             return atlases;
         }
@@ -64,7 +64,7 @@ namespace FastLoader
             result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
             result.AtlasesSaved = StaticAtlasCache.BuildFromCurrentAtlases();
             FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, result.TexturesSaved);
-            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, true, result.AtlasesSaved);
+            FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, result.AtlasesSaved > 0, result.AtlasesSaved);
             Log.Message("[FastLoader] BuildAllCaches completed: " + result);
             return result;
         }
