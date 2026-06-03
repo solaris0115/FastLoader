@@ -8,15 +8,16 @@ namespace FastLoader
         public bool XmlCacheBuilt;
         public int LanguageCachesBuilt;
         public int TexturesSaved;
+        public int AtlasesSaved;
 
         public bool AnyBuilt
         {
-            get { return XmlCacheBuilt || LanguageCachesBuilt > 0 || TexturesSaved > 0; }
+            get { return XmlCacheBuilt || LanguageCachesBuilt > 0 || TexturesSaved > 0 || AtlasesSaved > 0; }
         }
 
         public override string ToString()
         {
-            return "xml=" + XmlCacheBuilt + ", languages=" + LanguageCachesBuilt + ", textures=" + TexturesSaved;
+            return "xml=" + XmlCacheBuilt + ", languages=" + LanguageCachesBuilt + ", textures=" + TexturesSaved + ", atlases=" + AtlasesSaved;
         }
     }
 
@@ -45,10 +46,18 @@ namespace FastLoader
             return textures;
         }
 
+        public static int BuildStaticAtlasCache()
+        {
+            int atlases = StaticAtlasCache.BuildFromCurrentAtlases();
+            Log.Message("[FastLoader] BuildStaticAtlasCache completed: atlases=" + atlases);
+            return atlases;
+        }
+
         public static FastLoaderBuildResult BuildAllCaches()
         {
             FastLoaderBuildResult result = BuildXmlAndLanguageCaches();
             result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
+            result.AtlasesSaved = StaticAtlasCache.BuildFromCurrentAtlases();
             Log.Message("[FastLoader] BuildAllCaches completed: " + result);
             return result;
         }

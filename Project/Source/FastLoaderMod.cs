@@ -76,6 +76,17 @@ namespace FastLoader
                     true));
             }
 
+            listing.Gap(4f);
+            Rect atlasResetRow = listing.GetRect(30f);
+            Rect atlasResetRect = new Rect(atlasResetRow.x, atlasResetRow.y, buttonWidth, atlasResetRow.height);
+            if (Widgets.ButtonText(atlasResetRect, "Reset atlas cache"))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "Clear FastLoader static atlas cache files? Use Build atlas cache now after reaching the main menu to create them again.",
+                    DeleteAtlasCacheFromSettings,
+                    true));
+            }
+
             listing.Gap(8f);
             Rect buildRow = listing.GetRect(30f);
             float buildButtonWidth = Mathf.Min(190f, (buildRow.width - gap * 2f) / 3f);
@@ -98,6 +109,17 @@ namespace FastLoader
                 Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
                     "Write XML and language caches from the current loaded data?",
                     BuildXmlCacheFromMemory,
+                    true));
+            }
+
+            listing.Gap(4f);
+            Rect atlasBuildRow = listing.GetRect(30f);
+            Rect atlasBuildRect = new Rect(atlasBuildRow.x, atlasBuildRow.y, buildButtonWidth, atlasBuildRow.height);
+            if (Widgets.ButtonText(atlasBuildRect, "Build atlas cache now"))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
+                    "Write static atlas cache from the atlases built during this load?",
+                    BuildAtlasCacheFromMemory,
                     true));
             }
 
@@ -183,6 +205,20 @@ namespace FastLoader
             }
         }
 
+        private static void DeleteAtlasCacheFromSettings()
+        {
+            try
+            {
+                StaticAtlasCache.DeleteAll();
+                Messages.Message("FastLoader atlas cache cleared.", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to clear static atlas cache files.\n" + ex);
+                Messages.Message("Failed to clear FastLoader atlas cache. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+
         private static void BuildXmlCacheFromMemory()
         {
             try
@@ -213,13 +249,35 @@ namespace FastLoader
             try
             {
                 FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
-                Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);
+                result.AtlasesSaved = FastLoaderBridge.BuildStaticAtlasCache();
+                Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Atlas caches: " + result.AtlasesSaved + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);
                 Find.WindowStack.Add(new TextureCacheBuildWindow());
             }
             catch (Exception ex)
             {
                 Log.Error("[FastLoader] Failed to start Build all caches.\n" + ex);
                 Messages.Message("Failed to build FastLoader caches. See log for details.", MessageTypeDefOf.RejectInput, false);
+            }
+        }
+
+        private static void BuildAtlasCacheFromMemory()
+        {
+            try
+            {
+                int count = FastLoaderBridge.BuildStaticAtlasCache();
+                if (count > 0)
+                {
+                    Messages.Message("Atlas cache built: " + count + " atlases saved.", MessageTypeDefOf.TaskCompletion, false);
+                }
+                else
+                {
+                    Messages.Message("No static atlases are available yet. Load to the main menu first, then try again.", MessageTypeDefOf.RejectInput, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to build static atlas cache from memory.\n" + ex);
+                Messages.Message("Failed to build atlas cache. See log for details.", MessageTypeDefOf.RejectInput, false);
             }
         }
 

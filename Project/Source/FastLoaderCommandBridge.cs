@@ -7,6 +7,7 @@ namespace FastLoader
     {
         private const string BuildLanguageArg = "-fastloader-build-language-cache";
         private const string BuildXmlLanguageArg = "-fastloader-build-xml-language-cache";
+        private const string BuildAtlasArg = "-fastloader-build-atlas-cache";
         private static bool processed;
 
         public static void ProcessCommandLineBuildRequests()
@@ -21,7 +22,8 @@ namespace FastLoader
             string[] args = Environment.GetCommandLineArgs();
             bool buildXmlLanguage = HasArg(args, BuildXmlLanguageArg);
             bool buildLanguage = HasArg(args, BuildLanguageArg);
-            if (!buildXmlLanguage && !buildLanguage)
+            bool buildAtlas = HasArg(args, BuildAtlasArg);
+            if (!buildXmlLanguage && !buildLanguage && !buildAtlas)
             {
                 return;
             }
@@ -33,10 +35,16 @@ namespace FastLoader
                     FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
                     Log.Message("[FastLoader] Command bridge built XML/language caches: " + result);
                 }
-                else
+                else if (buildLanguage)
                 {
                     int count = FastLoaderBridge.BuildLanguageCache();
                     Log.Message("[FastLoader] Command bridge built language caches: languages=" + count);
+                }
+
+                if (buildAtlas)
+                {
+                    int count = FastLoaderBridge.BuildStaticAtlasCache();
+                    Log.Message("[FastLoader] Command bridge built static atlas caches: atlases=" + count);
                 }
             }
             catch (Exception ex)
