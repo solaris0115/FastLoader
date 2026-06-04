@@ -9,7 +9,7 @@
 
 측정 기준: 활성 모드 117개
 
-| 구간 | 바닐라 경로 | 개선 버전 | 차이 |
+| 구간 | 바닐라 | 개선 | 차이 |
 |---|---:|---:|---:|
 | 전체 로비 진입 | 91.8초 | 29.9초 | -61.8초, 67.4% 감소 |
 | XML 캐시 프로파일 전체 | 9.2초 | 2.1초 | -7.0초 |
@@ -20,16 +20,16 @@
 ## 빠른 시작
 
 1. Steam 창작마당에서 [구독](#)한다.  
-   또는 [다운로드](#) 파일을 림월드 `Mods` 폴더에 압축 해제한다.
-2. 모드 배열에서 Harmony 아래에 둔다. 가능하면 Core/DLC 바로 아래쪽의 앞부분에 배치한다.
-3. 림월드 실행 후 `Options -> Mod Settings -> FastLoader`에서 `Build Cache`를 실행한다.
-4. 림월드를 재시작하면 다음 실행부터 속도가 빨라진다.
+   또는 [다운로드](#) 파일을 림월드 `Mods` 폴더에 압축 해제.
+2. 모드 배열에서 Harmony 아래에 둔다. 가능하면 Core/DLC 바로 아래쪽의 앞부분에 배치.
+3. 림월드 실행 후 `Options -> Mod Settings -> FastLoader`에서 `Build Cache`를 실행.
+4. 림월드를 재시작하면 다음 실행부터 속도가 빨라집니다.
 
 ## 캐시를 다시 만들어야 하는 경우
 
 - 모드 추가, 제거, 변경, 직접 수정
 - 모드 배열 순서 변경
-- 모드 업데이트
+- 캐시된 모드 업데이트
 - 언어 변경
 - FastLoader 설정에서 atlas 압축 여부나 atlas chunk size 변경
 
@@ -42,12 +42,14 @@
 
 ## 어떻게 줄어드는가
 
-| 항목 | 바닐라 경로 | FastLoader 경로 |
+FastLoader는 매 실행마다 반복되는 작은 파일 읽기, 텍스트 파싱, 이미지 디코딩, 런타임 가공 단계를 캐시 파일로 묶어 재사용한다. 개념적으로는 여러 모드의 로딩 결과를 한 번 빌드한 뒤, 다음 실행부터는 번들화된 결과물을 읽는 방식이다.
+
+| 항목 | 바닐라 | FastLoader |
 |---|---|---|
-| XML | 매 실행마다 모드 XML을 읽고, patch를 적용하고, inheritance를 해석한 뒤 Def를 만든다. | patch와 inheritance가 적용된 `resolved_defs.xml`을 저장하고, 다음 실행에서는 최종 XML에서 Def를 만든다. |
-| 언어 | 매 실행마다 `Keyed`, `Strings`, `DefInjected` 파일을 파싱하고 Def에 번역을 주입한다. | `Keyed`/`Strings`와 `DefInjected` 패키지를 바이너리 캐시로 저장하고, 다음 실행에서는 XML 파싱 없이 적용한다. |
-| 텍스처 | 매 실행마다 PNG/JPG/PSD 파일을 열고 디코딩한 뒤 Unity `Texture2D`로 등록한다. | 이미 로드된 텍스처 raw data를 `.texcache`로 저장하고, 다음 실행에서는 `LoadRawTextureData`로 복원한다. |
-| 정적 아틀라스 | 매 실행마다 텍스처들을 묶고 blit, mask atlas, mesh, compression 단계를 다시 수행한다. | 완성된 color/mask atlas texture와 UV rect를 `.atlascache`로 저장하고, 다음 실행에서는 bake 대신 복원한다. |
+| XML | 여러 모드의 XML을 매번 읽고 patch, inheritance, Def 생성 준비를 다시 수행한다. | 수정이 끝난 최종 XML을 하나의 캐시 XML로 묶어 저장하고 반복 처리 비용을 줄인다. |
+| 언어 | 언어 XML을 매번 파싱하고 `DefInjected`를 Def에 주입한다. | 언어 데이터와 `DefInjected` 주입 정보를 바이너리로 저장해 텍스트 파싱 비용을 줄인다. |
+| 텍스처 | 수많은 이미지 파일을 개별 open/read하고 PNG/JPG/PSD를 Unity 텍스처 포맷으로 디코딩한다. | Unity 텍스처 포맷으로 변환된 raw data를 통째로 캐싱해 여러 파일 입출력과 디코딩 과정을 생략한다. |
+| 정적 아틀라스 | 로드된 텍스처를 다시 모아 atlas texture, mask, UV 정보를 매번 만든다. | 완성된 atlas texture와 UV 정보를 하나의 캐시 파일로 저장해 bake 과정을 줄인다. |
 
 ## 동작 방식
 
@@ -56,11 +58,12 @@
 기존 흐름:
 
 1. 각 모드의 `Defs/*.xml`을 읽는다.
-2. `Patches/*.xml`의 XPath patch를 적용한다.
-3. XML inheritance를 해석한다.
-4. 최종 XML 노드에서 Def 인스턴스를 만든다.
+2. XML을 파싱하고 Def를 만들 수 있는 형태로 모은다.
+3. `Patches/*.xml`의 XPath patch를 적용한다.
+4. XML inheritance를 해석한다.
+5. 최종 XML 노드에서 Def 인스턴스를 만든다.
 
-FastLoader는 1~3번이 끝난 XML을 `Cache/resolved_defs.xml`로 저장한다. 다음 실행에서는 모드별 XML 파일 읽기, patch 적용, inheritance 해석을 건너뛰고 저장된 XML에서 Def를 만든다.
+FastLoader는 patch와 inheritance 적용까지 끝난 최종 XML 자체를 `Cache/resolved_defs.xml` 하나로 저장한다. 다음 실행에서는 모드별 XML 파일을 다시 모으고 patch/inheritance를 다시 처리하는 오버헤드를 줄이고, 캐시된 XML에서 Def 인스턴스를 만든다.
 
 ### 언어 캐시
 
@@ -70,7 +73,7 @@ FastLoader는 1~3번이 끝난 XML을 `Cache/resolved_defs.xml`로 저장한다.
 2. 문자열 파일을 파싱해서 딕셔너리와 문자열 목록을 만든다.
 3. `DefInjected` 항목을 Def 인스턴스에 주입한다.
 
-FastLoader는 `Keyed`/`Strings`를 `.flang` 바이너리로 저장하고, `DefInjected` 항목은 `.finj` 바이너리로 저장한다. 다음 실행에서는 언어 XML 파일 파싱을 건너뛰고 바이너리 데이터를 바로 읽어 적용한다.
+FastLoader는 매번 텍스트 파싱 후 `DefInjected`를 구성하던 결과를 `.flang`, `.finj` 바이너리 캐시로 저장한다. 다음 실행에서는 언어 파일 파싱 과정을 줄이고 바이너리 데이터를 바로 읽어 Def 주입과 문자열 테이블 구성을 빠르게 처리한다.
 
 ### 텍스처 캐시
 
@@ -80,7 +83,7 @@ FastLoader는 `Keyed`/`Strings`를 `.flang` 바이너리로 저장하고, `DefIn
 2. PNG/JPG/PSD 파일을 읽고 디코딩한다.
 3. Unity `Texture2D`를 만들고 `Apply`한 뒤 모드 content holder에 등록한다.
 
-FastLoader는 한 번 로드된 텍스처를 raw texture data로 저장한다. 다음 실행에서는 개별 이미지 파일 디코딩 대신 `.texcache`에서 raw data를 읽어 `Texture2D.LoadRawTextureData`로 복원한다.
+FastLoader는 한 번 Unity 텍스처 포맷으로 변환된 정보를 raw texture data로 `.texcache`에 저장한다. 다음 실행에서는 여러 이미지 파일을 다시 열고 디코딩하는 대신, 캐시된 raw data를 읽어 `Texture2D.LoadRawTextureData`로 복원한다.
 
 ### 정적 아틀라스 캐시
 
@@ -91,7 +94,7 @@ FastLoader는 한 번 로드된 텍스처를 raw texture data로 저장한다. �
 3. 아틀라스 텍스처 압축과 `Apply`를 수행한다.
 4. 각 텍스처에 대응하는 UV rect와 mesh를 만든다.
 
-FastLoader는 완성된 atlas texture payload와 UV rect 목록을 `.atlascache`로 저장한다. 다음 실행에서는 `StaticTextureAtlas.Bake`를 가로채 캐시가 맞으면 color/mask texture와 tile 정보를 복원하고 bake를 건너뛴다.
+FastLoader는 완성된 atlas texture payload와 UV rect 목록을 `.atlascache`로 저장한다. 다음 실행에서는 `StaticTextureAtlas.Bake`를 가로채 캐시가 맞으면 color/mask texture와 tile 정보를 복원하고, blit/압축/UV 구성 과정을 줄인다.
 
 ## 캐시 파일 구조
 
