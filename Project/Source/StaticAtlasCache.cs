@@ -16,8 +16,9 @@ namespace FastLoader
     internal static class StaticAtlasCache
     {
         private const int Magic = 0x54414C46;
-        private const int FormatVersion = 5;
-        private const string HashVersion = "FastLoaderStaticAtlasV6ConfigurableStorage";
+        private const int FormatVersion = 6;
+        private const int MinSupportedFormatVersion = 5;
+        private const string HashVersion = "FastLoaderStaticAtlasV5Lz4StripedReadback";
         private const string CacheExtension = ".atlascache";
         private const int BytesPerMegabyte = 1024 * 1024;
         private const int MaxTextureChunkBytes = FastLoaderSettings.MaxAtlasCacheChunkSizeMb * BytesPerMegabyte;
@@ -165,6 +166,8 @@ namespace FastLoader
                     record.Group = (int)atlas.groupKey.group;
                     record.HasMask = atlas.groupKey.hasMask;
                     record.TextureCount = textures.Count;
+                    record.AtlasCacheCompressionEnabled = ShouldCompressAtlasCache();
+                    record.AtlasCacheChunkSizeMb = GetAtlasCacheChunkSizeMb();
                     record.ColorTexture = CaptureTexture(colorTexture);
                     if (record.ColorTexture == null)
                     {
@@ -579,8 +582,6 @@ namespace FastLoader
                 AppendHash(sha, StaticTextureAtlas.MaxAtlasSize.ToString());
                 AppendHash(sha, UnityData.ComputeShadersSupported ? "compute" : "no-compute");
                 AppendHash(sha, Prefs.TextureCompression ? "compression" : "no-compression");
-                AppendHash(sha, ShouldCompressAtlasCache() ? "compressed" : "raw");
-                AppendHash(sha, GetAtlasCacheChunkSizeMb().ToString());
                 AppendHash(sha, textures.Count.ToString());
 
                 for (int i = 0; i < textures.Count; i++)
@@ -659,6 +660,8 @@ namespace FastLoader
                 writer.Write(record.Group);
                 writer.Write(record.HasMask);
                 writer.Write(record.TextureCount);
+                writer.Write(record.AtlasCacheCompressionEnabled);
+                writer.Write(record.AtlasCacheChunkSizeMb);
                 WriteTexture(writer, record.ColorTexture);
                 writer.Write(record.MaskTexture != null);
                 if (record.MaskTexture != null)
@@ -688,7 +691,8 @@ namespace FastLoader
                     return false;
                 }
 
-                if (reader.ReadInt32() != FormatVersion)
+                int version = reader.ReadInt32();
+                if (version < MinSupportedFormatVersion || version > FormatVersion)
                 {
                     return false;
                 }
@@ -704,6 +708,17 @@ namespace FastLoader
                 result.Group = reader.ReadInt32();
                 result.HasMask = reader.ReadBoolean();
                 result.TextureCount = reader.ReadInt32();
+                if (version >= 6)
+                {
+                    result.AtlasCacheCompressionEnabled = reader.ReadBoolean();
+                    result.AtlasCacheChunkSizeMb = reader.ReadInt32();
+                }
+                else
+                {
+                    result.AtlasCacheCompressionEnabled = true;
+                    result.AtlasCacheChunkSizeMb = FastLoaderSettings.DefaultAtlasCacheChunkSizeMb;
+                }
+
                 result.ColorTexture = ReadTexture(reader);
                 if (reader.ReadBoolean())
                 {
@@ -1061,6 +1076,8 @@ namespace FastLoader
             public int Group;
             public bool HasMask;
             public int TextureCount;
+            public bool AtlasCacheCompressionEnabled;
+            public int AtlasCacheChunkSizeMb;
             public TexturePayload ColorTexture;
             public TexturePayload MaskTexture;
             public readonly List<Rect> UvRects = new List<Rect>();
