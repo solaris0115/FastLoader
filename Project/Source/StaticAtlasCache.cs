@@ -17,9 +17,10 @@ namespace FastLoader
     {
         private const int Magic = 0x54414C46;
         private const int FormatVersion = 5;
-        private const string HashVersion = "FastLoaderStaticAtlasV5Lz4StripedReadback";
+        private const string HashVersion = "FastLoaderStaticAtlasV6ConfigurableStorage";
         private const string CacheExtension = ".atlascache";
-        private const int MaxTextureChunkBytes = 32 * 1024 * 1024;
+        private const int BytesPerMegabyte = 1024 * 1024;
+        private const int MaxTextureChunkBytes = FastLoaderSettings.MaxAtlasCacheChunkSizeMb * BytesPerMegabyte;
         private const long MaxTexturePayloadBytes = 1024L * 1024L * 1024L;
         private const int MaxTextureChunkCount = 4096;
 
@@ -359,7 +360,8 @@ namespace FastLoader
                 return null;
             }
 
-            int stripeHeight = CalculateStripeHeight(source.width);
+            int chunkBytes = GetAtlasCacheChunkSizeBytes();
+            int stripeHeight = CalculateStripeHeight(source.width, chunkBytes);
             RenderTexture rt = RenderTexture.GetTemporary(
                 source.width,
                 source.height,
@@ -385,7 +387,7 @@ namespace FastLoader
 
                     var data = request.GetData<byte>();
                     int expectedLength = source.width * height * 4;
-                    if (data.Length != expectedLength || data.Length <= 0 || data.Length > MaxTextureChunkBytes)
+                    if (data.Length != expectedLength || data.Length <= 0 || data.Length > chunkBytes)
                     {
                         Log.Warning("[FastLoader] Static atlas render texture stripe capture skipped for " + source.name + ": raw texture chunk is invalid.");
                         return null;
@@ -439,10 +441,10 @@ namespace FastLoader
             }
         }
 
-        private static int CalculateStripeHeight(int width)
+        private static int CalculateStripeHeight(int width, int maxChunkBytes)
         {
             int rowBytes = Math.Max(1, width) * 4;
-            return Math.Max(1, MaxTextureChunkBytes / rowBytes);
+            return Math.Max(1, maxChunkBytes / rowBytes);
         }
 
         private static Texture2D RestoreTexture(TexturePayload payload)
@@ -577,6 +579,8 @@ namespace FastLoader
                 AppendHash(sha, StaticTextureAtlas.MaxAtlasSize.ToString());
                 AppendHash(sha, UnityData.ComputeShadersSupported ? "compute" : "no-compute");
                 AppendHash(sha, Prefs.TextureCompression ? "compression" : "no-compression");
+                AppendHash(sha, ShouldCompressAtlasCache() ? "compressed" : "raw");
+                AppendHash(sha, GetAtlasCacheChunkSizeMb().ToString());
                 AppendHash(sha, textures.Count.ToString());
 
                 for (int i = 0; i < textures.Count; i++)
@@ -622,6 +626,27 @@ namespace FastLoader
         {
             return !FastLoaderRuntime.IsCacheFallbackActive &&
                 (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
+        }
+
+        private static bool ShouldCompressAtlasCache()
+        {
+            return FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.AtlasCacheCompressionEnabled;
+        }
+
+        private static int GetAtlasCacheChunkSizeMb()
+        {
+            if (FastLoaderRuntime.Settings == null)
+            {
+                return FastLoaderSettings.DefaultAtlasCacheChunkSizeMb;
+            }
+
+            FastLoaderRuntime.Settings.NormalizeAtlasCacheSettings();
+            return FastLoaderRuntime.Settings.AtlasCacheChunkSizeMb;
+        }
+
+        private static int GetAtlasCacheChunkSizeBytes()
+        {
+            return GetAtlasCacheChunkSizeMb() * BytesPerMegabyte;
         }
 
         private static void Write(string path, AtlasCacheRecord record)
@@ -716,9 +741,10 @@ namespace FastLoader
             writer.Write(texture.WrapMode);
             writer.Write(texture.AnisoLevel);
             writer.Write(texture.MipMapBias);
+            bool compress = ShouldCompressAtlasCache();
             if (texture.Chunks != null && texture.Chunks.Count > 0)
             {
-                writer.Write((byte)3);
+                writer.Write(compress ? (byte)3 : (byte)1);
                 writer.Write(texture.TotalRawLength);
                 writer.Write(texture.Chunks.Count);
                 for (int i = 0; i < texture.Chunks.Count; i++)
@@ -728,13 +754,21 @@ namespace FastLoader
                     writer.Write(chunk.Y);
                     writer.Write(chunk.Width);
                     writer.Write(chunk.Height);
-                    WriteCompressedBlock(writer, chunk.RawData, MaxTextureChunkBytes);
+                    if (compress)
+                    {
+                        WriteCompressedBlock(writer, chunk.RawData, MaxTextureChunkBytes);
+                    }
+                    else
+                    {
+                        writer.Write(chunk.RawData.Length);
+                        writer.Write(chunk.RawData);
+                    }
                 }
             }
             else
             {
-                byte[] compressed = FastLz4Block.TryCompress(texture.RawData);
-                if (compressed != null)
+                byte[] compressed = compress ? FastLz4Block.TryCompress(texture.RawData) : null;
+                if (compress && compressed != null)
                 {
                     writer.Write((byte)2);
                     writer.Write(texture.RawData.Length);

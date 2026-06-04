@@ -14,6 +14,7 @@ namespace FastLoader
         private readonly FastLoaderSettings settings;
         private bool showMissingCacheList;
         private Vector2 missingCacheListScroll;
+        private string atlasCacheChunkSizeBuffer;
 
         public FastLoaderMod(ModContentPack content) : base(content)
         {
@@ -38,11 +39,45 @@ namespace FastLoader
         {
             Listing_Standard listing = new Listing_Standard();
             listing.Begin(inRect);
+            settings.NormalizeAtlasCacheSettings();
+            if (string.IsNullOrEmpty(atlasCacheChunkSizeBuffer))
+            {
+                atlasCacheChunkSizeBuffer = settings.AtlasCacheChunkSizeMb.ToString();
+            }
+
             bool enabled = settings.CacheEnabled;
             listing.CheckboxLabeled("Enable FastLoader cache", ref enabled, null, 30f, 1f);
             if (enabled != settings.CacheEnabled)
             {
                 settings.CacheEnabled = enabled;
+                settings.Write();
+            }
+
+            bool compressAtlas = settings.AtlasCacheCompressionEnabled;
+            listing.CheckboxLabeled("Compress atlas cache", ref compressAtlas, null, 30f, 1f);
+            if (compressAtlas != settings.AtlasCacheCompressionEnabled)
+            {
+                settings.AtlasCacheCompressionEnabled = compressAtlas;
+                settings.Write();
+            }
+
+            Rect chunkRow = listing.GetRect(30f);
+            Rect chunkLabelRect = new Rect(chunkRow.x, chunkRow.y, Mathf.Min(220f, chunkRow.width * 0.55f), chunkRow.height);
+            Rect chunkInputRect = new Rect(chunkLabelRect.xMax + 8f, chunkRow.y, 80f, chunkRow.height);
+            Rect chunkSuffixRect = new Rect(chunkInputRect.xMax + 6f, chunkRow.y, 180f, chunkRow.height);
+            Widgets.Label(chunkLabelRect, "Atlas chunk size");
+            int chunkSizeMb = settings.AtlasCacheChunkSizeMb;
+            Widgets.TextFieldNumeric<int>(
+                chunkInputRect,
+                ref chunkSizeMb,
+                ref atlasCacheChunkSizeBuffer,
+                FastLoaderSettings.MinAtlasCacheChunkSizeMb,
+                FastLoaderSettings.MaxAtlasCacheChunkSizeMb);
+            chunkSizeMb = FastLoaderSettings.ClampAtlasCacheChunkSizeMb(chunkSizeMb);
+            Widgets.Label(chunkSuffixRect, "MB");
+            if (chunkSizeMb != settings.AtlasCacheChunkSizeMb)
+            {
+                settings.AtlasCacheChunkSizeMb = chunkSizeMb;
                 settings.Write();
             }
 
