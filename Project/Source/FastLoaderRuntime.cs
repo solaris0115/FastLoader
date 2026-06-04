@@ -204,6 +204,17 @@ namespace FastLoader
                     return;
                 }
 
+                string invalidationReason;
+                if (TryGetPreloadInvalidationReason(inputHash, out invalidationReason))
+                {
+                    cacheFallbackActive = true;
+                    Mode = FastLoaderMode.Disabled;
+                    statusReason = invalidationReason;
+                    FastProfile.SetStatus("DISABLED", statusReason, inputHash);
+                    Log.Warning("[FastLoader] Cache disabled for this load before cache restore: " + statusReason);
+                    return;
+                }
+
                 string missReason;
                 CacheData cache;
                 if (TryLoadCache(inputHash, out cache, out missReason))
@@ -228,6 +239,46 @@ namespace FastLoader
                 ActivateVanillaFallback(FastLoaderCacheKind.Xml, statusReason);
                 Log.Warning("[FastLoader] Cache check failed. Falling back to vanilla XML load.\n" + ex);
             }
+        }
+
+        private static bool TryGetPreloadInvalidationReason(string currentInputHash, out string reason)
+        {
+            reason = null;
+
+            FastLoaderCacheStateData state;
+            if (!FastLoaderCacheState.TryRead(out state) || state == null)
+            {
+                return false;
+            }
+
+            List<string> reasons = new List<string>();
+            if (!string.IsNullOrEmpty(state.InputHash) &&
+                !string.Equals(state.InputHash, currentInputHash ?? string.Empty, StringComparison.OrdinalIgnoreCase))
+            {
+                reasons.Add("active mod list/order changed since the cache was built");
+            }
+
+            string activeLanguage = FastLoaderCacheState.GetCurrentActiveLanguage();
+            if (!string.IsNullOrEmpty(state.ActiveLanguage) &&
+                !string.Equals(state.ActiveLanguage, activeLanguage ?? string.Empty, StringComparison.Ordinal))
+            {
+                reasons.Add("active language changed since the language cache was built: " + state.ActiveLanguage + " -> " + (activeLanguage ?? string.Empty));
+            }
+
+            string defaultLanguage = FastLoaderCacheState.GetCurrentDefaultLanguage();
+            if (!string.IsNullOrEmpty(state.DefaultLanguage) &&
+                !string.Equals(state.DefaultLanguage, defaultLanguage ?? string.Empty, StringComparison.Ordinal))
+            {
+                reasons.Add("default language changed since the language cache was built: " + state.DefaultLanguage + " -> " + (defaultLanguage ?? string.Empty));
+            }
+
+            if (reasons.Count == 0)
+            {
+                return false;
+            }
+
+            reason = "cache invalidated before load: " + string.Join("; ", reasons.ToArray());
+            return true;
         }
 
         public static void ActivateVanillaFallback(string stage, string detail)

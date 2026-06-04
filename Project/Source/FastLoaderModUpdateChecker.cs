@@ -626,7 +626,7 @@ namespace FastLoader
             Widgets.Label(textRect,
                 "FastLoader found cache state warnings after the game reached the main menu.\n" +
                 "Reasons: " + reasonCount + ". Updated Workshop mods: " + updatedCount + ".\n" +
-                "Continue with the current cache or build caches again from the current loaded data.");
+                "Continue without rebuilding or build caches again from the current loaded data.");
 
             Rect listRect = new Rect(0f, 132f, inRect.width, 260f);
             Widgets.DrawMenuSection(listRect);
