@@ -1,113 +1,115 @@
 # FastLoader
 
-림월드의 게임 기동 속도를 개선하는 모드입니다. 모드를 바꾸지 않았지만 매번 게임 실행마다 반복 로드하는 행위를 단축시켜 속도를 개선했습니다.
+English | [한국어](README_KO.md)
+
+FastLoader is a RimWorld startup optimization mod. It improves startup speed by shortening repeated loading work that RimWorld normally performs on every launch when the mod list has not changed.
 
 - RimWorld 1.6
-- Harmony 필요
+- Requires Harmony
 
-## 성능 개선 지표
+## Performance
 
-측정 기준: 활성 모드 117개
+Measured with 117 active mods.
 
-| 구간 | 바닐라 | 개선 | 차이 |
+| Section | Vanilla | Optimized | Difference |
 |---|---:|---:|---:|
-| 전체 로비 진입 | 91.8초 | 29.9초 | -61.8초, 67.4% 감소 |
-| XML 캐시 프로파일 전체 | 9.2초 | 2.1초 | -7.0초 |
-| 텍스처 리로드 | 53.8초 | 4.4초 | -49.4초 |
-| 정적 아틀라스 | 8.0초 | 5.8초 | -2.2초 |
-| PlayDataLoader 전체 | 18.8초 | 10.1초 | -8.7초 |
+| Total time to main menu | 91.8s | 29.9s | -61.8s, 67.4% faster |
+| XML cache profile total | 9.2s | 2.1s | -7.0s |
+| Texture reload | 53.8s | 4.4s | -49.4s |
+| Static atlas | 8.0s | 5.8s | -2.2s |
+| PlayDataLoader total | 18.8s | 10.1s | -8.7s |
 
-## 빠른 시작
+## Quick Start
 
-1. Steam 창작마당에서 [구독](#)한다.  
-   또는 [다운로드](#) 파일을 림월드 `Mods` 폴더에 압축 해제.
-2. 모드 배열에서 Harmony 아래에 둔다. 가능하면 Core/DLC 바로 아래쪽의 앞부분에 배치.
-3. 림월드 실행 후 `Options -> Mod Settings -> FastLoader`에서 `Build Cache`를 실행.
-4. 림월드를 재시작하면 다음 실행부터 속도가 빨라집니다.
+1. [Subscribe](#) on Steam Workshop.  
+   Or extract the [download](#) file into RimWorld's `Mods` folder.
+2. Place FastLoader below Harmony in the mod list. Preferably place it near the top, below Core/DLC and Harmony.
+3. Launch RimWorld and run `Build Cache` from `Options -> Mod Settings -> FastLoader`.
+4. Restart RimWorld. Startup should be faster from the next launch.
 
-## 캐시를 다시 만들어야 하는 경우
+## When to Rebuild Cache
 
-- 모드 추가, 제거, 변경, 직접 수정
-- 모드 배열 순서 변경
-- 캐시된 모드 업데이트
-- 언어 변경
-- FastLoader 설정에서 atlas 압축 여부나 atlas chunk size 변경
+- Mods were added, removed, changed, or manually edited
+- Mod load order changed
+- Cached mods were updated
+- Language changed
+- `Compress atlas cache` or `Atlas chunk size` changed in FastLoader settings
 
-## 세부 항목
+## Settings
 
-| 항목 | 설명 |
+| Setting | Description |
 |---|---|
-| `Compress atlas cache` | 정적 아틀라스 캐시를 LZ4로 압축한다. 기본값은 ON이다. 하드 용량이 부족하거나 저사양 환경에서 큰 캐시 파일을 피하고 싶으면 켜둔다. 속도를 우선하면 끌 수 있지만 캐시 파일이 크게 증가한다. |
-| `Atlas chunk size` | 아틀라스 캐시를 만들 때 GPU에서 한 번에 읽어오는 block 크기다. 기본값은 32MB이고 4~128MB 사이로 조정할 수 있다. 아틀라스 캐시 빌드 중 GPU 메모리 부족이나 실패가 발생하면 64MB, 32MB, 16MB처럼 낮춘다. 낮을수록 안전하지만 빌드는 느려질 수 있다. |
+| `Compress atlas cache` | Compresses static atlas cache with LZ4. Enabled by default. Keep this enabled if disk space is limited or if you want smaller cache files on lower-end systems. Disable it if startup speed is more important, but cache files will become much larger. |
+| `Atlas chunk size` | The GPU readback block size used while building atlas cache. Default is 32MB and the allowed range is 4-128MB. If atlas cache build fails or GPU memory is insufficient, lower this value, for example to 64MB, 32MB, or 16MB. Lower values are safer but can make cache build slower. |
 
-## 어떻게 줄어드는가
+## How It Reduces Load Time
 
-FastLoader는 매 실행마다 반복되는 작은 파일 읽기, 텍스트 파싱, 이미지 디코딩, 런타임 가공 단계를 캐시 파일로 묶어 재사용한다. 개념적으로는 여러 모드의 로딩 결과를 한 번 빌드한 뒤, 다음 실행부터는 번들화된 결과물을 읽는 방식이다.
+FastLoader groups repeated small file reads, text parsing, image decoding, and runtime processing into cache files. Conceptually, it builds bundled loading results once, then reads those bundled results on the next launch.
 
-| 항목 | 바닐라 | FastLoader |
+| Item | Vanilla | FastLoader |
 |---|---|---|
-| XML | 여러 모드의 XML을 매번 읽고 patch, inheritance, Def 생성 준비를 다시 수행한다. | 수정이 끝난 최종 XML을 하나의 캐시 XML로 묶어 저장하고 반복 처리 비용을 줄인다. |
-| 언어 | 언어 XML을 매번 파싱하고 `DefInjected`를 Def에 주입한다. | 언어 데이터와 `DefInjected` 주입 정보를 바이너리로 저장해 텍스트 파싱 비용을 줄인다. |
-| 텍스처 | 수많은 이미지 파일을 개별 open/read하고 PNG/JPG/PSD를 Unity 텍스처 포맷으로 디코딩한다. | Unity 텍스처 포맷으로 변환된 raw data를 통째로 캐싱해 여러 파일 입출력과 디코딩 과정을 생략한다. |
-| 정적 아틀라스 | 로드된 텍스처를 다시 모아 atlas texture, mask, UV 정보를 매번 만든다. | 완성된 atlas texture와 UV 정보를 하나의 캐시 파일로 저장해 bake 과정을 줄인다. |
+| XML | Reads XML from many mods and repeats patching, inheritance, and Def preparation every launch. | Stores the finalized XML as one cache XML file and reduces repeated processing. |
+| Language | Parses language XML and injects `DefInjected` data into Defs every launch. | Stores language data and `DefInjected` injection data as binary cache files to reduce text parsing. |
+| Texture | Opens many image files individually and decodes PNG/JPG/PSD into Unity texture format. | Caches raw data that has already been converted to Unity texture format, skipping many file reads and image decoding steps. |
+| Static atlas | Rebuilds atlas textures, masks, and UV data from loaded textures every launch. | Stores completed atlas textures and UV data in one cache file and reduces atlas baking work. |
 
-## 번들에서 제외되는 내용
+## Excluded From Bundles
 
-FastLoader는 반복 비용이 큰 모드 리소스와 로딩 결과를 중심으로 캐시한다. 다음 항목은 캐시 번들에 포함하지 않는다.
+FastLoader caches mod resources and loading results where repeated startup cost is high. The following are not included in the cache bundles.
 
-- RimWorld Core와 공식 DLC 텍스처: 기본 게임 리소스는 이미 Unity asset/AssetBundle 쪽으로 관리되므로 모드 텍스처 캐시 대상에서 제외한다.
-- 코드 전용 모드: `Assemblies/`만 있거나 실제 XML, 언어, 텍스처 리소스가 없는 경우 캐시할 파일이 없다.
-- 이미 Unity `AssetBundle`로 제공되는 리소스: PNG/JPG 디코딩 경로를 타지 않으므로 텍스처 raw 캐시 대상이 아니다.
-- 실행 중 새로 생성되는 임시 텍스처나 런타임 상태: 시작 로딩 결과를 재사용하는 목적이므로 세이브/플레이 중 변화하는 데이터는 저장하지 않는다.
+- RimWorld Core and official DLC textures: base game resources are already managed through Unity assets or AssetBundles, so they are excluded from the mod texture cache.
+- Code-only mods: if a mod only has `Assemblies/` and no XML, language, or texture resources, there is nothing to cache.
+- Resources already provided as Unity `AssetBundle`: these do not go through the PNG/JPG decoding path, so they are not part of the raw texture cache.
+- Temporary textures or runtime state created while the game is running: FastLoader reuses startup loading results and does not save changing save-game or runtime data.
 
-## 동작 방식
+## How It Works
 
-### XML 캐시
+### XML Cache
 
-기존 흐름:
+Vanilla flow:
 
-1. 각 모드의 `Defs/*.xml`을 읽는다.
-2. XML을 파싱하고 Def를 만들 수 있는 형태로 모은다.
-3. `Patches/*.xml`의 XPath patch를 적용한다.
-4. XML inheritance를 해석한다.
-5. 최종 XML 노드에서 Def 인스턴스를 만든다.
+1. Read each mod's `Defs/*.xml`.
+2. Parse XML and gather it into a form that can produce Defs.
+3. Apply XPath patches from `Patches/*.xml`.
+4. Resolve XML inheritance.
+5. Create Def instances from the final XML nodes.
 
-FastLoader는 patch와 inheritance 적용까지 끝난 최종 XML 자체를 `Cache/resolved_defs.xml` 하나로 저장한다. 다음 실행에서는 모드별 XML 파일을 다시 모으고 patch/inheritance를 다시 처리하는 오버헤드를 줄이고, 캐시된 XML에서 Def 인스턴스를 만든다.
+FastLoader stores the final XML after patch and inheritance processing as a single `Cache/resolved_defs.xml` file. On the next launch, it reduces the overhead of gathering mod XML and reprocessing patches/inheritance, then creates Def instances from the cached XML.
 
-### 언어 캐시
+### Language Cache
 
-기존 흐름:
+Vanilla flow:
 
-1. 선택 언어와 기본 언어의 `Keyed`, `Strings`, `DefInjected` 파일을 읽는다.
-2. 문자열 파일을 파싱해서 딕셔너리와 문자열 목록을 만든다.
-3. `DefInjected` 항목을 Def 인스턴스에 주입한다.
+1. Read `Keyed`, `Strings`, and `DefInjected` files from the selected language and the default language.
+2. Parse string files into dictionaries and string lists.
+3. Inject `DefInjected` entries into Def instances.
 
-FastLoader는 매번 텍스트 파싱 후 `DefInjected`를 구성하던 결과를 `.flang`, `.finj` 바이너리 캐시로 저장한다. 다음 실행에서는 언어 파일 파싱 과정을 줄이고 바이너리 데이터를 바로 읽어 Def 주입과 문자열 테이블 구성을 빠르게 처리한다.
+FastLoader stores the parsed language results as `.flang` and `.finj` binary cache files. On the next launch, it reduces language file parsing and applies Def injection and string tables from binary data.
 
-### 텍스처 캐시
+### Texture Cache
 
-기존 흐름:
+Vanilla flow:
 
-1. 모드별 `Textures/` 폴더를 순회한다.
-2. PNG/JPG/PSD 파일을 읽고 디코딩한다.
-3. Unity `Texture2D`를 만들고 `Apply`한 뒤 모드 content holder에 등록한다.
+1. Traverse each mod's `Textures/` folder.
+2. Read and decode PNG/JPG/PSD files.
+3. Create Unity `Texture2D`, call `Apply`, and register it in the mod content holder.
 
-FastLoader는 한 번 Unity 텍스처 포맷으로 변환된 정보를 raw texture data로 `.texcache`에 저장한다. 다음 실행에서는 여러 이미지 파일을 다시 열고 디코딩하는 대신, 캐시된 raw data를 읽어 `Texture2D.LoadRawTextureData`로 복원한다.
+FastLoader stores texture data after it has already been converted to Unity texture format as raw texture data in `.texcache`. On the next launch, it reads cached raw data and restores textures with `Texture2D.LoadRawTextureData` instead of opening and decoding many image files again.
 
-### 정적 아틀라스 캐시
+### Static Atlas Cache
 
-기존 흐름:
+Vanilla flow:
 
-1. 아틀라스 대상 텍스처 목록을 모은다.
-2. color atlas와 mask atlas에 텍스처를 blit한다.
-3. 아틀라스 텍스처 압축과 `Apply`를 수행한다.
-4. 각 텍스처에 대응하는 UV rect와 mesh를 만든다.
+1. Collect textures that should be included in a static atlas.
+2. Blit textures into color and mask atlases.
+3. Compress and `Apply` atlas textures.
+4. Build UV rects and meshes for each source texture.
 
-FastLoader는 완성된 atlas texture payload와 UV rect 목록을 `.atlascache`로 저장한다. 다음 실행에서는 `StaticTextureAtlas.Bake`를 가로채 캐시가 맞으면 color/mask texture와 tile 정보를 복원하고, blit/압축/UV 구성 과정을 줄인다.
+FastLoader stores completed atlas texture payloads and UV rects in `.atlascache`. On the next launch, it intercepts `StaticTextureAtlas.Bake`; if a matching cache exists, it restores color/mask textures and tile data, reducing blit, compression, and UV setup work.
 
-## 캐시 파일 구조
+## Cache File Structure
 
-캐시는 림월드 설정 폴더 아래에 생성된다.
+Caches are created under the RimWorld config folder.
 
 ```text
 %USERPROFILE%\AppData\LocalLow\Ludeon Studios\RimWorld by Ludeon Studios\Config\FastLoader\
@@ -128,7 +130,7 @@ FastLoader는 완성된 atlas texture payload와 UV rect 목록을 `.atlascache`
 
 ### `cache_state.xml`
 
-현재 캐시 상태, 빌드 시점, 모드 배열 해시, 언어, 각 캐시 종류별 생성 여부를 기록한다. 모드 배열이나 언어가 달라지면 캐시 사용 여부 판단에 사용된다.
+Stores current cache state, build time, mod loadout hash, language, and whether each cache type was built. It is used to decide whether the cache is valid when the mod list or language changes.
 
 ### `Cache/manifest.xml`
 
@@ -145,11 +147,11 @@ FastLoader는 완성된 atlas texture payload와 UV rect 목록을 `.atlascache`
 </FastLoaderCache>
 ```
 
-`inputHash`는 게임 버전, FastLoader 버전, 활성 모드 배열을 기준으로 만든다. 모드 파일 전체를 재귀 순회해 내용 해시를 만들지는 않는다.
+`inputHash` is based on game version, FastLoader version, and active mod load order. It does not recursively hash every file in mod folders.
 
 ### `Cache/resolved_defs.xml`
 
-Patch와 XML inheritance가 적용된 뒤의 최종 `Defs` 문서다.
+The final `Defs` document after patches and XML inheritance have been applied.
 
 ```xml
 <Defs>
@@ -160,7 +162,7 @@ Patch와 XML inheritance가 적용된 뒤의 최종 `Defs` 문서다.
 
 ### `.texcache`
 
-`BinaryWriter` 기반 바이너리 파일이다.
+A `BinaryWriter`-based binary file.
 
 ```csharp
 struct TextureCacheHeader
@@ -188,11 +190,11 @@ struct RawTextureEntryMeta
 byte[] RawData[TextureCount];
 ```
 
-저장 순서는 header, texture metadata 배열, raw texture byte 배열이다.
+The file stores header, texture metadata array, then raw texture byte arrays.
 
 ### `.flang`
 
-`Keyed` 번역 딕셔너리와 `Strings` 파일 내용을 저장하는 바이너리 파일이다.
+A binary file containing `Keyed` translation dictionary data and `Strings` file contents.
 
 ```csharp
 struct LanguageCacheHeader
@@ -225,7 +227,7 @@ struct StringFile
 
 ### `.finj`
 
-`DefInjected` 번역 주입 데이터를 저장하는 바이너리 파일이다. 문자열은 string table에 모아두고, 각 injection은 string id를 참조한다.
+A binary file containing `DefInjected` translation injection data. Strings are stored in a string table, and each injection references string ids.
 
 ```csharp
 struct DefInjectedCache
@@ -260,7 +262,7 @@ struct DefInjectedEntry
 
 ### `.atlascache`
 
-정적 아틀라스 복원용 바이너리 파일이다.
+A binary file for restoring static atlases.
 
 ```csharp
 struct AtlasCacheHeader
@@ -292,30 +294,30 @@ struct TexturePayload
 
 `StorageKind`:
 
-| 값 | 의미 |
+| Value | Meaning |
 |---:|---|
-| `0` | raw texture data |
-| `1` | raw chunk 배열 |
-| `2` | LZ4 압축 raw texture data |
-| `3` | LZ4 압축 chunk 배열 |
+| `0` | Raw texture data |
+| `1` | Raw chunk array |
+| `2` | LZ4-compressed raw texture data |
+| `3` | LZ4-compressed chunk array |
 
-아틀라스 본문에는 color texture payload, optional mask texture payload, texture별 UV rect 배열이 저장된다. `Compress atlas cache`가 켜져 있으면 LZ4 저장을 사용하고, 꺼져 있으면 raw chunk 저장을 사용한다.
+The atlas body stores color texture payload, optional mask texture payload, and UV rects for source textures. If `Compress atlas cache` is enabled when the cache is built, LZ4 storage is used. If disabled, raw chunk storage is used.
 
-## 모드 설정
+## Mod Settings
 
-위치:
+Location:
 
 ```text
 Options -> Mod Settings -> FastLoader
 ```
 
-| 항목 | 설명 |
+| Setting | Description |
 |---|---|
-| `Enable FastLoader cache` | 캐시 사용 여부 |
-| `Compress atlas cache` | 아틀라스 캐시 압축 여부. 기본 ON |
-| `Atlas chunk size` | 아틀라스 캐시 빌드 중 GPU에서 한 번에 읽는 block 크기 |
-| `Build Cache` | XML, 언어, 텍스처, 아틀라스 캐시 생성 |
-| `Remove Cache` | 모든 FastLoader 캐시 삭제 |
-| `Open Cache Folder` | 캐시 폴더 열기 |
+| `Enable FastLoader cache` | Enables cache usage |
+| `Compress atlas cache` | Enables atlas cache compression. Default ON |
+| `Atlas chunk size` | GPU readback block size used while building atlas cache |
+| `Build Cache` | Builds XML, language, texture, and atlas caches |
+| `Remove Cache` | Deletes all FastLoader caches |
+| `Open Cache Folder` | Opens the cache folder |
 
 `solaris.fastloader`
