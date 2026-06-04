@@ -9,7 +9,7 @@
 
 ## 성능 개선 지표
 
-측정 기준: 활성 모드 117개
+측정 기준: 활성 모드 117개<br>
 Test device spec  I7-Gen12 / SSD M2 NVME samsung 970 / 3080 
 
 | 구간 | 바닐라 | 개선 | 차이 |
