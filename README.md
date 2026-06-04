@@ -1,91 +1,97 @@
 # FastLoader
 
-림월드 로딩 개선 모드입니다.
-게임 실행마다 발생하는 텍스처 로딩과 XML 파싱과 같은 오버헤드를 개선하여 로딩 속도를 개선합니다.
-정리된 Defs를 캐싱하여 데이터 접근 속도를 높이고 텍스처를 일괄로 묶어 초기 로딩 속도를 개선합니다.
+림월드의 게임 기동 속도를 개선하는 모드입니다. 모드를 바꾸지 않았지만 매번 게임 실행마다 반복 로드하는 행위를 단축시켜 속도를 개선했습니다.
 
-[![RimWorld](https://img.shields.io/badge/RimWorld-1.6-green.svg)](#)
-[![Harmony](https://img.shields.io/badge/requires-Harmony-blue.svg)](#)
+- RimWorld 1.6
+- Harmony 필요
 
 ## 성능 개선 지표
 
-테스트 환경: 활성 모드 117개 기준
+측정 기준: 활성 모드 117개
 
-| 구간 | 개선 전 | 개선 후 |
-|---|---:|---:|
-| 전체 로드 | 106.64초 | 55.61초 |
-| XML 파싱 및 patch 적용 | 10.29초 | 3.01초 |
-| 텍스처 로드/디코딩 | 45.09초 | 2.50초 |
+| 구간 | 바닐라 경로 | 개선 버전 | 차이 |
+|---|---:|---:|---:|
+| 전체 로비 진입 | 91.8초 | 29.9초 | -61.8초, 67.4% 감소 |
+| XML 캐시 프로파일 전체 | 9.2초 | 2.1초 | -7.0초 |
+| 텍스처 리로드 | 53.8초 | 4.4초 | -49.4초 |
+| 정적 아틀라스 | 8.0초 | 5.8초 | -2.2초 |
+| PlayDataLoader 전체 | 18.8초 | 10.1초 | -8.7초 |
 
 ## 빠른 시작
 
-1. 다운로드한 파일을 림월드 `Mods` 폴더에 압축 해제한다.  
-   또는 Steam 창작마당에서 구독한다.
-2. 모드 배열에서 Harmony 뒤에 둔다. 가능하면 Core/DLC와 Harmony 바로 아래, 다른 대형 모드들보다 위에 배치한다.
-3. 림월드를 실행한 뒤 `Options -> Mod Settings -> FastLoader`에서 캐시를 빌드한다.
-   - `Build all caches now`
-4. 림월드를 재시작한다.
-5. 다음 재시작부터 실행 속도가 상승한다.
-
-캐시 파일이 없거나 모드 구성이 바뀌면 해당 구간은 기본 로딩 방식으로 실행된다. 모드 목록을 바꾼 뒤에는 FastLoader 설정에서 캐시를 다시 빌드하는 것이 좋다.
+1. Steam 창작마당에서 [구독](#)한다.  
+   또는 [다운로드](#) 파일을 림월드 `Mods` 폴더에 압축 해제한다.
+2. 모드 배열에서 Harmony 아래에 둔다. 가능하면 Core/DLC 바로 아래쪽의 앞부분에 배치한다.
+3. 림월드 실행 후 `Options -> Mod Settings -> FastLoader`에서 `Build Cache`를 실행한다.
+4. 림월드를 재시작하면 다음 실행부터 속도가 빨라진다.
 
 ## 캐시를 다시 만들어야 하는 경우
 
-다음 상황에서는 설정 화면에서 캐시를 다시 빌드하는 것을 권장한다.
+- 모드 추가, 제거, 변경, 직접 수정
+- 모드 배열 순서 변경
+- 모드 업데이트
+- 언어 변경
+- FastLoader 설정에서 atlas 압축 여부나 atlas chunk size 변경
 
-- 모드를 추가하거나 제거한 경우
-- 모드 배열 순서를 바꾼 경우
-- 모드 파일을 직접 수정한 경우
-- 림월드 또는 FastLoader 버전이 바뀐 경우
-- 텍스처가 바뀌었는데 게임에 예전 텍스처가 보이는 경우
+## 세부 항목
 
-## 요구 사항
+| 항목 | 설명 |
+|---|---|
+| `Compress atlas cache` | 정적 아틀라스 캐시를 LZ4로 압축한다. 기본값은 ON이다. 하드 용량이 부족하거나 저사양 환경에서 큰 캐시 파일을 피하고 싶으면 켜둔다. 속도를 우선하면 끌 수 있지만 캐시 파일이 크게 증가한다. |
+| `Atlas chunk size` | 아틀라스 캐시를 만들 때 GPU에서 한 번에 읽어오는 block 크기다. 기본값은 32MB이고 4~128MB 사이로 조정할 수 있다. 아틀라스 캐시 빌드 중 GPU 메모리 부족이나 실패가 발생하면 64MB, 32MB, 16MB처럼 낮춘다. 낮을수록 안전하지만 빌드는 느려질 수 있다. |
 
-- Harmony가 먼저 설치되고 FastLoader보다 먼저 로드되어야 한다.
+## 어떻게 줄어드는가
 
-## 무엇을 줄이는가
-
-FastLoader는 시작 로딩 중 반복 비용이 큰 두 구간을 캐시한다.
-
-| 대상 | 림월드 기본 처리 | FastLoader 처리 |
+| 항목 | 바닐라 경로 | FastLoader 경로 |
 |---|---|---|
-| XML | 매 실행마다 XML 파일을 읽고 patch와 resolve를 다시 수행 | 처리 완료된 resolved XML을 저장해 재사용 |
-| 텍스처 | 매 실행마다 PNG/JPG/PSD를 읽고 디코딩, 압축, 등록 | 이미 로드된 텍스처 데이터를 `.texcache`로 저장해 재사용 |
+| XML | 매 실행마다 모드 XML을 읽고, patch를 적용하고, inheritance를 해석한 뒤 Def를 만든다. | patch와 inheritance가 적용된 `resolved_defs.xml`을 저장하고, 다음 실행에서는 최종 XML에서 Def를 만든다. |
+| 언어 | 매 실행마다 `Keyed`, `Strings`, `DefInjected` 파일을 파싱하고 Def에 번역을 주입한다. | `Keyed`/`Strings`와 `DefInjected` 패키지를 바이너리 캐시로 저장하고, 다음 실행에서는 XML 파싱 없이 적용한다. |
+| 텍스처 | 매 실행마다 PNG/JPG/PSD 파일을 열고 디코딩한 뒤 Unity `Texture2D`로 등록한다. | 이미 로드된 텍스처 raw data를 `.texcache`로 저장하고, 다음 실행에서는 `LoadRawTextureData`로 복원한다. |
+| 정적 아틀라스 | 매 실행마다 텍스처들을 묶고 blit, mask atlas, mesh, compression 단계를 다시 수행한다. | 완성된 color/mask atlas texture와 UV rect를 `.atlascache`로 저장하고, 다음 실행에서는 bake 대신 복원한다. |
 
 ## 동작 방식
 
 ### XML 캐시
 
-림월드의 XML 로딩은 크게 세 단계로 볼 수 있다.
+기존 흐름:
 
-1. **XML 파싱**  
-   각 모드의 `Defs/*.xml`을 읽고 하나의 XML 문서로 모은다.
-2. **Patch 적용**  
-   각 모드의 `Patches/*.xml`에 있는 XPath patch를 적용한다.
-3. **Resolve / Def 생성**  
-   XML inheritance를 해석하고, 최종 XML 노드에서 `Def` 객체를 만든다.
+1. 각 모드의 `Defs/*.xml`을 읽는다.
+2. `Patches/*.xml`의 XPath patch를 적용한다.
+3. XML inheritance를 해석한다.
+4. 최종 XML 노드에서 Def 인스턴스를 만든다.
 
-FastLoader는 patch와 inheritance 해석이 끝난 XML을 `resolved_defs.xml`로 저장한다. 다음 실행에서는 XML 파일 읽기, 문서 통합, XPath patch 적용, inheritance 해석을 대부분 건너뛰고, 저장된 XML에서 `Def` 객체를 만든다.
+FastLoader는 1~3번이 끝난 XML을 `Cache/resolved_defs.xml`로 저장한다. 다음 실행에서는 모드별 XML 파일 읽기, patch 적용, inheritance 해석을 건너뛰고 저장된 XML에서 Def를 만든다.
 
-즉 최종 `Def` 객체를 통째로 저장하는 방식이 아니라, 림월드가 `Def`를 만들기 직전의 XML 상태를 저장하는 방식이다.
+### 언어 캐시
+
+기존 흐름:
+
+1. 선택 언어와 기본 언어의 `Keyed`, `Strings`, `DefInjected` 파일을 읽는다.
+2. 문자열 파일을 파싱해서 딕셔너리와 문자열 목록을 만든다.
+3. `DefInjected` 항목을 Def 인스턴스에 주입한다.
+
+FastLoader는 `Keyed`/`Strings`를 `.flang` 바이너리로 저장하고, `DefInjected` 항목은 `.finj` 바이너리로 저장한다. 다음 실행에서는 언어 XML 파일 파싱을 건너뛰고 바이너리 데이터를 바로 읽어 적용한다.
 
 ### 텍스처 캐시
 
-림월드의 모드 텍스처 로딩은 보통 다음 과정을 거친다.
+기존 흐름:
 
-1. 모드별 `Textures/` 폴더에서 이미지 파일을 찾는다.
-2. PNG/JPG/PSD 파일을 읽고 `Texture2D`로 디코딩한다.
-3. Unity 런타임에서 텍스처를 압축하고 `Apply`한 뒤 등록한다.
+1. 모드별 `Textures/` 폴더를 순회한다.
+2. PNG/JPG/PSD 파일을 읽고 디코딩한다.
+3. Unity `Texture2D`를 만들고 `Apply`한 뒤 모드 content holder에 등록한다.
 
-FastLoader는 한 번 로드된 텍스처를 다시 읽어 raw texture data로 저장한다. 이후 실행에서는 개별 이미지 파일을 다시 열고 디코딩하는 대신, 모드별 `.texcache` 파일에서 raw data를 읽어 `Texture2D.LoadRawTextureData`로 바로 복원한다.
+FastLoader는 한 번 로드된 텍스처를 raw texture data로 저장한다. 다음 실행에서는 개별 이미지 파일 디코딩 대신 `.texcache`에서 raw data를 읽어 `Texture2D.LoadRawTextureData`로 복원한다.
 
-이 방식으로 줄어드는 비용은 다음과 같다.
+### 정적 아틀라스 캐시
 
-- 수천 개 파일을 개별 open/read 하는 비용
-- PNG/JPG/PSD 디코딩 비용
-- 런타임 텍스처 압축 비용
+기존 흐름:
 
-현재 텍스처 캐시는 워크샵/로컬 모드 기준으로 모드별 파일에 저장된다. Core와 공식 DLC 리소스는 이미 Unity asset/AssetBundle 형태라 텍스처 캐시 대상에서 제외된다. 여러 모드를 하나로 묶는 그룹 캐시도 지원할 수 있도록 파일 포맷이 분리되어 있다.
+1. 아틀라스 대상 텍스처 목록을 모은다.
+2. color atlas와 mask atlas에 텍스처를 blit한다.
+3. 아틀라스 텍스처 압축과 `Apply`를 수행한다.
+4. 각 텍스처에 대응하는 UV rect와 mesh를 만든다.
+
+FastLoader는 완성된 atlas texture payload와 UV rect 목록을 `.atlascache`로 저장한다. 다음 실행에서는 `StaticTextureAtlas.Bake`를 가로채 캐시가 맞으면 color/mask texture와 tile 정보를 복원하고 bake를 건너뛴다.
 
 ## 캐시 파일 구조
 
@@ -93,52 +99,31 @@ FastLoader는 한 번 로드된 텍스처를 다시 읽어 raw texture data로 �
 
 ```text
 %USERPROFILE%\AppData\LocalLow\Ludeon Studios\RimWorld by Ludeon Studios\Config\FastLoader\
+├── cache_state.xml
 ├── Cache\
 │   ├── manifest.xml
 │   └── resolved_defs.xml
+├── LanguageCache\
+│   ├── language_{folderName}.flang
+│   └── definjected_{folderName}.finj
 ├── TextureCache\
 │   ├── mod_{packageid}.texcache
 │   ├── group_{groupid}.texcache
 │   └── groups.xml
-├── LanguageCache\
-│   └── language_{folderName}.flang
-└── AudioCache\                  # 예정
-    └── mod_{packageid}.audiocache
+└── StaticAtlasCache\
+    └── atlas_{hash}.atlascache
 ```
 
-### XML 캐시
+### `cache_state.xml`
 
-| 파일 | 설명 |
-|---|---|
-| `Cache/manifest.xml` | 게임 버전, FastLoader 버전, 모드 구성 해시, 캐시 항목 메타데이터 |
-| `Cache/resolved_defs.xml` | patch와 inheritance가 반영된 최종 XML 문서 |
+현재 캐시 상태, 빌드 시점, 모드 배열 해시, 언어, 각 캐시 종류별 생성 여부를 기록한다. 모드 배열이나 언어가 달라지면 캐시 사용 여부 판단에 사용된다.
 
-### 텍스처 캐시
-
-| 파일 | 설명 |
-|---|---|
-| `TextureCache/mod_{packageid}.texcache` | 모드 하나의 텍스처 raw data |
-| `TextureCache/group_{groupid}.texcache` | 여러 모드를 묶은 텍스처 raw data |
-| `TextureCache/groups.xml` | 그룹 캐시 설정 |
-
-`.texcache` 파일에는 텍스처 경로, 이름, 크기, 포맷, 필터 설정, raw texture byte 배열이 들어간다.
-
-### 언어 캐시
-
-| 파일 | 설명 |
-|---|---|
-| `LanguageCache/language_{folderName}.flang` | `Keyed` 번역 딕셔너리와 `Strings` 문자열 목록을 저장한 바이너리 캐시 |
-
-`DefInjected` 번역은 Def 인스턴스에 직접 주입되는 데이터라 현재 언어 캐시에는 포함하지 않는다. `Keyed`와 `Strings`는 Def 객체가 아니라 `LanguageDatabase.activeLanguage`의 조회용 딕셔너리로 유지된다.
-
-#### `manifest.xml`
-
-XML 캐시의 검증 정보와 `resolved_defs.xml` 안의 Def 출처 정보를 저장한다.
+### `Cache/manifest.xml`
 
 ```xml
 <FastLoaderCache>
   <formatVersion>1</formatVersion>
-  <fastLoaderVersion>0.2.2</fastLoaderVersion>
+  <fastLoaderVersion>...</fastLoaderVersion>
   <gameVersion>...</gameVersion>
   <inputHash>...</inputHash>
   <createdUtc>...</createdUtc>
@@ -148,11 +133,11 @@ XML 캐시의 검증 정보와 `resolved_defs.xml` 안의 Def 출처 정보를 �
 </FastLoaderCache>
 ```
 
-`inputHash`는 현재 림월드 버전, 활성 모드 수, 모드 배열 순서, `packageId`, `packageIdPlayerFacing`을 기준으로 만든다. 모드 폴더를 재귀 순회해서 파일 내용을 검증하지는 않는다.
+`inputHash`는 게임 버전, FastLoader 버전, 활성 모드 배열을 기준으로 만든다. 모드 파일 전체를 재귀 순회해 내용 해시를 만들지는 않는다.
 
-#### `resolved_defs.xml`
+### `Cache/resolved_defs.xml`
 
-Patch와 XML inheritance가 적용된 뒤의 최종 `Defs` 문서를 저장한다.
+Patch와 XML inheritance가 적용된 뒤의 최종 `Defs` 문서다.
 
 ```xml
 <Defs>
@@ -161,16 +146,16 @@ Patch와 XML inheritance가 적용된 뒤의 최종 `Defs` 문서를 저장한�
 </Defs>
 ```
 
-#### `.texcache`
+### `.texcache`
 
-텍스처 캐시는 `BinaryWriter` 기반 바이너리 파일이다. 실제 C# `struct`로 저장하는 것은 아니지만, 파일 레이아웃은 다음 구조와 같다.
+`BinaryWriter` 기반 바이너리 파일이다.
 
 ```csharp
 struct TextureCacheHeader
 {
     byte[4] Magic;          // "FLTX"
-    int FormatVersion;      // 현재 1
-    byte[64] CacheHash;     // UTF-8 고정 길이 문자열
+    int FormatVersion;      // 1
+    byte[64] CacheHash;
     int TextureCount;
     long CreatedUtcTicks;
 }
@@ -181,9 +166,9 @@ struct RawTextureEntryMeta
     string Name;
     int Width;
     int Height;
-    int TextureFormat;      // UnityEngine.TextureFormat
+    int TextureFormat;
     int MipmapCount;
-    int FilterMode;         // UnityEngine.FilterMode
+    int FilterMode;
     int AnisoLevel;
     int RawDataLength;
 }
@@ -191,25 +176,116 @@ struct RawTextureEntryMeta
 byte[] RawData[TextureCount];
 ```
 
-저장 순서는 헤더, 텍스처 메타데이터 배열, raw texture byte 배열 순서다. 읽을 때는 먼저 `Magic`, `FormatVersion`, `CacheHash`를 확인하고, 맞는 경우에만 raw texture data를 읽어 `Texture2D.LoadRawTextureData`로 복원한다.
+저장 순서는 header, texture metadata 배열, raw texture byte 배열이다.
 
-`CacheHash`는 FastLoader 버전, 림월드 버전, 현재 모드 배열 해시, 모드 `packageId` 또는 그룹 ID를 기준으로 만든다.
+### `.flang`
 
-#### `groups.xml`
+`Keyed` 번역 딕셔너리와 `Strings` 파일 내용을 저장하는 바이너리 파일이다.
 
-여러 모드의 텍스처를 하나의 `group_{groupid}.texcache`로 묶기 위한 설정 파일이다.
+```csharp
+struct LanguageCacheHeader
+{
+    byte[4] Magic;          // "FLLC"
+    int FormatVersion;      // 1
+    string CacheHash;
+    string LanguageFolderName;
+    long CreatedUtcTicks;
+}
 
-```xml
-<TextureCacheGroups>
-  <group id="group-id" name="Group Name">
-    <mod>mod.package.id</mod>
-  </group>
-</TextureCacheGroups>
+struct KeyedReplacement
+{
+    string DictKey;
+    string Key;
+    string Value;
+    string FileSource;
+    int FileSourceLine;
+    string FileSourceFullPath;
+    bool IsPlaceholder;
+}
+
+struct StringFile
+{
+    string VirtualPath;
+    int LineCount;
+    string[] Lines;
+}
 ```
 
-### 오디오 캐시
+### `.finj`
 
-오디오 캐시는 아직 적용 전이다. 이후 구현 시 `AudioCache/` 아래에 모드별 오디오 캐시를 저장하는 구조를 사용할 예정이다.
+`DefInjected` 번역 주입 데이터를 저장하는 바이너리 파일이다. 문자열은 string table에 모아두고, 각 injection은 string id를 참조한다.
+
+```csharp
+struct DefInjectedCache
+{
+    byte[4] Magic;          // "FLDI"
+    StringTable Strings;
+    int PackageCount;
+    DefInjectedPackage[] Packages;
+}
+
+struct DefInjectedPackage
+{
+    int DefTypeStringId;
+    int InjectionCount;
+    DefInjectedEntry[] Injections;
+}
+
+struct DefInjectedEntry
+{
+    int KeyStringId;
+    int PathStringId;
+    int NormalizedPathStringId;
+    int NonBackCompatiblePathStringId;
+    int SuggestedPathStringId;
+    int InjectionStringId;
+    int FileSourceStringId;
+    bool IsPlaceholder;
+    int[] FullListStringIds;
+    FullListComment[] FullListComments;
+}
+```
+
+### `.atlascache`
+
+정적 아틀라스 복원용 바이너리 파일이다.
+
+```csharp
+struct AtlasCacheHeader
+{
+    int Magic;              // "FLAT" little-endian
+    int FormatVersion;      // 5
+    string CacheHash;
+    int AtlasGroup;
+    bool HasMask;
+    int TextureCount;
+}
+
+struct TexturePayload
+{
+    string Name;
+    int Width;
+    int Height;
+    int GraphicsFormat;
+    int MipCount;
+    int FilterMode;
+    int WrapMode;
+    int AnisoLevel;
+    float MipMapBias;
+    byte StorageKind;
+}
+```
+
+`StorageKind`:
+
+| 값 | 의미 |
+|---:|---|
+| `0` | raw texture data |
+| `1` | raw chunk 배열 |
+| `2` | LZ4 압축 raw texture data |
+| `3` | LZ4 압축 chunk 배열 |
+
+아틀라스 본문에는 color texture payload, optional mask texture payload, texture별 UV rect 배열이 저장된다. `Compress atlas cache`가 켜져 있으면 LZ4 저장을 사용하고, 꺼져 있으면 raw chunk 저장을 사용한다.
 
 ## 모드 설정
 
@@ -221,14 +297,11 @@ Options -> Mod Settings -> FastLoader
 
 | 항목 | 설명 |
 |---|---|
-| `Enable FastLoader cache` | FastLoader 캐시 사용 여부 |
-| `Build all caches now` | 현재 로딩에서 확보한 XML, 언어, 텍스처 캐시를 생성 |
-| `Build XML cache now` | 현재 로딩에서 확보한 resolved XML과 언어 캐시를 저장 |
-| `Build texture cache now` | 현재 메모리에 로드된 모드 텍스처를 `.texcache`로 저장 |
-| `Reset XML cache` | XML 캐시 삭제 |
-| `Reset texture cache` | 텍스처 캐시 삭제 |
-| `Reset all caches` | XML, 언어, 텍스처 캐시 전체 삭제 |
+| `Enable FastLoader cache` | 캐시 사용 여부 |
+| `Compress atlas cache` | 아틀라스 캐시 압축 여부. 기본 ON |
+| `Atlas chunk size` | 아틀라스 캐시 빌드 중 GPU에서 한 번에 읽는 block 크기 |
+| `Build Cache` | XML, 언어, 텍스처, 아틀라스 캐시 생성 |
+| `Remove Cache` | 모든 FastLoader 캐시 삭제 |
+| `Open Cache Folder` | 캐시 폴더 열기 |
 
----
-
-`solaris.fastloader` / RimWorld 1.6
+`solaris.fastloader`
