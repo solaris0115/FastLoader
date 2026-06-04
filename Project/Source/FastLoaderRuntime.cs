@@ -58,6 +58,7 @@ namespace FastLoader
         public static string LastInputHash;
         public static int LastParsedDefCount;
         public static double LastLoadElapsedMs;
+        public static string LastXmlCacheBuildFailureReason;
 
         public static bool IsCacheFallbackActive
         {
@@ -144,6 +145,7 @@ namespace FastLoader
             LanguageBinaryCache.DeleteAll();
             StaticAtlasCache.DeleteAll();
             FastLoaderCacheState.Delete();
+            DeleteResidualTempFiles();
 
             Log.Message("[FastLoader] All cache files cleared.");
         }
@@ -362,12 +364,14 @@ namespace FastLoader
                 lastResolvedXmlSnapshot.ResolvedDefs.DocumentElement == null ||
                 string.IsNullOrEmpty(lastResolvedXmlSnapshot.InputHash))
             {
+                LastXmlCacheBuildFailureReason = "No resolved XML snapshot is available.";
                 Log.Message("[FastLoader] XML cache cannot be built because no resolved XML snapshot is available.");
                 return false;
             }
 
             try
             {
+                LastXmlCacheBuildFailureReason = null;
                 Directory.CreateDirectory(CachePath);
                 WriteResolvedDefs(lastResolvedXmlSnapshot.ResolvedDefs);
                 WriteManifest(lastResolvedXmlSnapshot);
@@ -376,6 +380,7 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
+                LastXmlCacheBuildFailureReason = ex.GetBaseException().Message;
                 Log.Warning("[FastLoader] Failed to write XML cache from current snapshot.\n" + ex);
                 return false;
             }
@@ -786,6 +791,27 @@ namespace FastLoader
             }
 
             File.Move(tempPath, path);
+        }
+
+        private static void DeleteResidualTempFiles()
+        {
+            if (!Directory.Exists(RootPath))
+            {
+                return;
+            }
+
+            try
+            {
+                string[] files = Directory.GetFiles(RootPath, "*.tmp", SearchOption.AllDirectories);
+                for (int i = 0; i < files.Length; i++)
+                {
+                    TryDeleteFile(files[i]);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FastLoader] Failed to delete residual temp cache files.\n" + ex);
+            }
         }
 
         private static void AppendElement(XmlDocument document, XmlElement parent, string name, string value)

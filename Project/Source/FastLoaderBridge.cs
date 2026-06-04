@@ -74,13 +74,31 @@ namespace FastLoader
         {
             using (FastLoaderRuntime.ManualBuildScope())
             {
-                FastLoaderBuildResult result = BuildXmlAndLanguageCaches();
-                result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
-                result.AtlasesSaved = StaticAtlasCache.BuildFromCurrentAtlases();
-                FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, result.TexturesSaved);
-                FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, result.AtlasesSaved > 0, result.AtlasesSaved);
-                Log.Message("[FastLoader] BuildAllCaches completed: " + result);
-                return result;
+                try
+                {
+                    FastLoaderBuildResult result = BuildXmlAndLanguageCaches();
+                    if (!result.XmlCacheBuilt)
+                    {
+                        throw new InvalidOperationException("XML cache build failed: " + (FastLoaderRuntime.LastXmlCacheBuildFailureReason ?? "unknown reason"));
+                    }
+
+                    if (result.LanguageCachesBuilt <= 0)
+                    {
+                        throw new InvalidOperationException("Language cache build failed.");
+                    }
+
+                    result.TexturesSaved = TextureRawCache.RebuildFromLoadedMods();
+                    result.AtlasesSaved = StaticAtlasCache.BuildFromCurrentAtlases();
+                    FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Texture, true, result.TexturesSaved);
+                    FastLoaderCacheState.MarkBuilt(FastLoaderCacheKind.Atlas, result.AtlasesSaved > 0, result.AtlasesSaved);
+                    Log.Message("[FastLoader] BuildAllCaches completed: " + result);
+                    return result;
+                }
+                catch
+                {
+                    FastLoaderRuntime.DeleteAllCaches();
+                    throw;
+                }
             }
         }
 

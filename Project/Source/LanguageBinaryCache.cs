@@ -148,6 +148,7 @@ namespace FastLoader
             catch (Exception ex)
             {
                 Log.Warning("[FastLoader] Failed to write language cache for " + Describe(language) + ".\n" + ex);
+                throw new IOException("Failed to write language cache for " + Describe(language) + ": " + ex.GetBaseException().Message, ex);
             }
         }
 

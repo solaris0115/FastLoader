@@ -114,6 +114,32 @@ namespace FastLoader
             return saved;
         }
 
+        public static long EstimateBuildCacheBytes()
+        {
+            List<StaticTextureAtlas> atlases = GetCurrentAtlases();
+            long total = 0L;
+            for (int i = 0; i < atlases.Count; i++)
+            {
+                StaticTextureAtlas atlas = atlases[i];
+                if (atlas == null)
+                {
+                    continue;
+                }
+
+                Texture2D colorTexture = ColorTextureField.GetValue(atlas) as Texture2D;
+                Texture2D maskTexture = MaskTextureField.GetValue(atlas) as Texture2D;
+                total = SafeAdd(total, EstimateAtlasTextureCacheBytes(colorTexture));
+                total = SafeAdd(total, EstimateAtlasTextureCacheBytes(maskTexture));
+            }
+
+            if (ShouldCompressAtlasCache())
+            {
+                total = Math.Max(total / 4L, total > 0L ? 64L * BytesPerMegabyte : 0L);
+            }
+
+            return total;
+        }
+
         public static void DeleteAll()
         {
             currentLoadoutHash = null;
@@ -214,7 +240,7 @@ namespace FastLoader
                 catch (Exception ex)
                 {
                     Log.Warning("[FastLoader] Failed to write static atlas cache for " + atlas.groupKey + ".\n" + ex);
-                    return false;
+                    throw new IOException("Failed to write static atlas cache for " + atlas.groupKey + ": " + ex.GetBaseException().Message, ex);
                 }
             }
         }
@@ -547,6 +573,31 @@ namespace FastLoader
             }
 
             return 0L;
+        }
+
+        private static long EstimateAtlasTextureCacheBytes(Texture2D texture)
+        {
+            if (texture == null)
+            {
+                return 0L;
+            }
+
+            return (long)Math.Max(1, texture.width) * Math.Max(1, texture.height) * 4L;
+        }
+
+        private static long SafeAdd(long left, long right)
+        {
+            if (right <= 0L)
+            {
+                return left;
+            }
+
+            if (long.MaxValue - left < right)
+            {
+                return long.MaxValue;
+            }
+
+            return left + right;
         }
 
         private static string FormatBytes(long bytes)

@@ -70,6 +70,15 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
+                try
+                {
+                    FastLoaderBridge.DeleteAllCaches();
+                }
+                catch (Exception deleteEx)
+                {
+                    Log.Error("[FastLoader] Command bridge failed to remove partial cache files after build failure.\n" + deleteEx);
+                }
+
                 Log.Error("[FastLoader] Command bridge cache build failed.\n" + ex);
             }
         }

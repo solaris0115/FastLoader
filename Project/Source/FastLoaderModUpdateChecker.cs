@@ -717,12 +717,20 @@ namespace FastLoader
         {
             try
             {
+                string diskSpaceMessage;
+                if (FastLoaderDiskSpaceGuard.TryGetInsufficientSpaceMessage(out diskSpaceMessage))
+                {
+                    Log.Warning("[FastLoader] Build Cache skipped by disk space guard.\n" + diskSpaceMessage);
+                    ShowFailurePopup("Build Cache warning", diskSpaceMessage);
+                    return;
+                }
+
                 FastLoaderRuntime.DeleteAllCaches();
                 EnsureNoCacheFilesRemain();
                 FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
                 if (!result.XmlCacheBuilt)
                 {
-                    throw new InvalidOperationException("XML cache build failed.");
+                    throw new InvalidOperationException("XML cache build failed: " + (FastLoaderRuntime.LastXmlCacheBuildFailureReason ?? "unknown reason"));
                 }
 
                 if (result.LanguageCachesBuilt <= 0)
@@ -745,7 +753,7 @@ namespace FastLoader
                 bool partialRemoved = TryDeleteAfterFailedBuild();
                 ShowFailurePopup("Build Cache failed", "FastLoader could not build caches.\n" +
                     (partialRemoved ? "Partial cache files were removed." : "Partial cache files could not be fully removed.") +
-                    "\n\n" + ex.Message);
+                    "\n\nReason: " + FormatException(ex));
             }
         }
 
@@ -770,7 +778,8 @@ namespace FastLoader
             bool partialRemoved = TryDeleteAfterFailedBuild();
             ShowFailurePopup("Build Cache failed", "FastLoader could not build caches.\n" +
                 (partialRemoved ? "Partial cache files were removed." : "Partial cache files could not be fully removed.") +
-                "\n\n" + (detail ?? "Unknown failure."));
+                "\n\n" + (detail ?? "Unknown failure.") +
+                "\nReason: " + FormatException(exception));
         }
 
         private static bool TryDeleteAfterFailedBuild()
@@ -805,6 +814,7 @@ namespace FastLoader
                 if (string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, "resolved_defs.xml", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, "cache_state.xml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".tmp", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".texcache", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".flang", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".finj", StringComparison.OrdinalIgnoreCase) ||
@@ -825,6 +835,17 @@ namespace FastLoader
                 null,
                 title,
                 false));
+        }
+
+        private static string FormatException(Exception exception)
+        {
+            if (exception == null)
+            {
+                return "unknown error";
+            }
+
+            Exception root = exception.GetBaseException();
+            return root.GetType().Name + ": " + root.Message;
         }
     }
 }

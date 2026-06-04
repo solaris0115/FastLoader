@@ -167,6 +167,7 @@ namespace FastLoader
             catch (Exception ex)
             {
                 Log.Warning("[FastLoader] Failed to save texture raw cache for " + packageId + ".\n" + ex);
+                throw new IOException("Failed to save texture raw cache for " + packageId + ": " + ex.GetBaseException().Message, ex);
             }
         }
 
@@ -192,6 +193,7 @@ namespace FastLoader
             catch (Exception ex)
             {
                 Log.Warning("[FastLoader] Failed to save texture raw cache for group " + group.GroupName + ".\n" + ex);
+                throw new IOException("Failed to save texture raw cache for group " + group.GroupName + ": " + ex.GetBaseException().Message, ex);
             }
         }
 
@@ -314,6 +316,35 @@ namespace FastLoader
             {
                 return "unable to read cache status";
             }
+        }
+
+        public static long EstimateBuildCacheBytes()
+        {
+            long total = 0L;
+            List<ModContentPack> mods = LoadedModManager.RunningModsListForReading;
+            for (int i = 0; i < mods.Count; i++)
+            {
+                ModContentPack mod = mods[i];
+                if (mod == null || mod.IsCoreMod || mod.IsOfficialMod)
+                {
+                    continue;
+                }
+
+                ModContentHolder<UnityEngine.Texture2D> holder = TexturesField != null
+                    ? TexturesField.GetValue(mod) as ModContentHolder<UnityEngine.Texture2D>
+                    : null;
+                if (holder == null || holder.contentList == null)
+                {
+                    continue;
+                }
+
+                foreach (KeyValuePair<string, UnityEngine.Texture2D> kvp in holder.contentList)
+                {
+                    total = SafeAdd(total, EstimateTextureCacheEntryBytes(kvp.Value));
+                }
+            }
+
+            return total;
         }
 
         public static List<string> GetModsWithoutCurrentCacheInfo()
@@ -756,6 +787,32 @@ namespace FastLoader
             }
 
             return name;
+        }
+
+        private static long EstimateTextureCacheEntryBytes(UnityEngine.Texture2D texture)
+        {
+            if (texture == null)
+            {
+                return 0L;
+            }
+
+            long pixels = (long)Math.Max(1, texture.width) * Math.Max(1, texture.height);
+            return Math.Max(1024L, pixels + 512L);
+        }
+
+        private static long SafeAdd(long left, long right)
+        {
+            if (right <= 0L)
+            {
+                return left;
+            }
+
+            if (long.MaxValue - left < right)
+            {
+                return long.MaxValue;
+            }
+
+            return left + right;
         }
 
         private static string GetCurrentLoadoutHash()
