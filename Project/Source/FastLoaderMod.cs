@@ -75,17 +75,17 @@ namespace FastLoader
                 FastLoaderSettings.MaxAtlasCacheChunkSizeMb);
             chunkSizeMb = FastLoaderSettings.ClampAtlasCacheChunkSizeMb(chunkSizeMb);
             Widgets.Label(chunkSuffixRect, "MB");
-            TooltipHandler.TipRegion(
-                chunkRow,
-                "Maximum GPU readback block size used when building atlas cache.\n" +
-                "If atlas cache build fails or the GPU runs out of memory, lower this value. Lower values are safer but can make cache build slower.");
+            Rect chunkHelpRect = listing.GetRect(42f);
+            Widgets.Label(
+                chunkHelpRect,
+                "(GPU readback block size for atlas cache build. If build fails or GPU memory is insufficient, lower this value. Lower values are safer but slower.)");
             if (chunkSizeMb != settings.AtlasCacheChunkSizeMb)
             {
                 settings.AtlasCacheChunkSizeMb = chunkSizeMb;
                 settings.Write();
             }
 
-            listing.Gap(8f);
+            listing.Gap(4f);
             Rect buttonRow = listing.GetRect(30f);
             const float gap = 4f;
             float buttonWidth = Mathf.Min(220f, (buttonRow.width - gap) / 2f);
