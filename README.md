@@ -266,11 +266,13 @@ struct DefInjectedEntry
 struct AtlasCacheHeader
 {
     int Magic;              // "FLAT" little-endian
-    int FormatVersion;      // 5
+    int FormatVersion;      // 6
     string CacheHash;
     int AtlasGroup;
     bool HasMask;
     int TextureCount;
+    bool AtlasCacheCompressionEnabled;
+    int AtlasCacheChunkSizeMb;
 }
 
 struct TexturePayload
