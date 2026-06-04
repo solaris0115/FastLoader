@@ -9,8 +9,8 @@ FastLoader is a RimWorld startup optimization mod. It improves startup speed by 
 
 ## Performance
 
-Measured with 117 active mods.
-Test device spec  I7-Gen12 / SSD M2 NVME samsung 970 / 3080 
+Measured with 117 active mods.<br>
+Test device spec: i7-12th Gen / SSD M.2 NVMe Samsung 970 / RTX 3080
 
 | Section | Vanilla | Optimized | Difference |
 |---|---:|---:|---:|
