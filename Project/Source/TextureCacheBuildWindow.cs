@@ -5,19 +5,31 @@ using Verse;
 
 namespace FastLoader
 {
+    internal enum TextureCacheBuildFailureCleanup
+    {
+        None,
+        Texture,
+        All
+    }
+
     internal sealed class TextureCacheBuildWindow : Window
     {
         private readonly TextureRawCache.TextureBuildSession session;
-        private readonly bool deleteCachesOnFailure;
+        private readonly TextureCacheBuildFailureCleanup failureCleanup;
         private bool completionHandled;
 
-        public TextureCacheBuildWindow() : this(false)
+        public TextureCacheBuildWindow() : this(TextureCacheBuildFailureCleanup.None)
         {
         }
 
         public TextureCacheBuildWindow(bool deleteCachesOnFailure)
+            : this(deleteCachesOnFailure ? TextureCacheBuildFailureCleanup.All : TextureCacheBuildFailureCleanup.None)
         {
-            this.deleteCachesOnFailure = deleteCachesOnFailure;
+        }
+
+        public TextureCacheBuildWindow(TextureCacheBuildFailureCleanup failureCleanup)
+        {
+            this.failureCleanup = failureCleanup;
             session = TextureRawCache.StartRebuildFromLoadedMods();
             absorbInputAroundWindow = true;
             closeOnClickedOutside = false;
@@ -44,9 +56,13 @@ namespace FastLoader
                 catch (System.Exception ex)
                 {
                     completionHandled = true;
-                    if (deleteCachesOnFailure)
+                    if (failureCleanup == TextureCacheBuildFailureCleanup.All)
                     {
                         FastLoaderCacheUiActions.ReportBuildFailureAndDeleteCaches("Texture cache build failed: " + ex.Message, ex);
+                    }
+                    else if (failureCleanup == TextureCacheBuildFailureCleanup.Texture)
+                    {
+                        FastLoaderCacheUiActions.ReportTextureBuildFailureAndDeleteTextureCache("Texture cache build failed: " + ex.Message, ex);
                     }
                     else
                     {

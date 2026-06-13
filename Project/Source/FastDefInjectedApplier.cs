@@ -660,7 +660,7 @@ namespace FastLoader
         private static bool IsEnabled()
         {
             return !FastLoaderRuntime.IsCacheFallbackActive &&
-                (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
+                FastLoaderRuntime.ShouldUseXmlCache;
         }
 
         private static string Describe(LoadedLanguage language)

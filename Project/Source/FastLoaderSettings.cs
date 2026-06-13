@@ -10,6 +10,9 @@ namespace FastLoader
         public const int MaxAtlasCacheChunkSizeMb = 128;
 
         public bool CacheEnabled = true;
+        public bool XmlCacheEnabled = true;
+        public bool TextureCacheEnabled = true;
+        public bool AtlasCacheEnabled = true;
         public bool AtlasCacheCompressionEnabled = true;
         public int AtlasCacheChunkSizeMb = DefaultAtlasCacheChunkSizeMb;
         public string IgnoredWorkshopUpdateSignature = string.Empty;
@@ -17,10 +20,28 @@ namespace FastLoader
         public override void ExposeData()
         {
             Scribe_Values.Look(ref CacheEnabled, "cacheEnabled", true);
+            Scribe_Values.Look(ref XmlCacheEnabled, "xmlCacheEnabled", true);
+            Scribe_Values.Look(ref TextureCacheEnabled, "textureCacheEnabled", true);
+            Scribe_Values.Look(ref AtlasCacheEnabled, "atlasCacheEnabled", true);
             Scribe_Values.Look(ref AtlasCacheCompressionEnabled, "atlasCacheCompressionEnabled", true);
             Scribe_Values.Look(ref AtlasCacheChunkSizeMb, "atlasCacheChunkSizeMb", DefaultAtlasCacheChunkSizeMb);
             Scribe_Values.Look(ref IgnoredWorkshopUpdateSignature, "ignoredWorkshopUpdateSignature", string.Empty);
             NormalizeAtlasCacheSettings();
+        }
+
+        public bool UseXmlCache
+        {
+            get { return CacheEnabled && XmlCacheEnabled; }
+        }
+
+        public bool UseTextureCache
+        {
+            get { return CacheEnabled && TextureCacheEnabled; }
+        }
+
+        public bool UseAtlasCache
+        {
+            get { return CacheEnabled && AtlasCacheEnabled; }
         }
 
         public void NormalizeAtlasCacheSettings()

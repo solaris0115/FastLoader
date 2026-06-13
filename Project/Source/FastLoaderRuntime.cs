@@ -75,6 +75,21 @@ namespace FastLoader
             get { return Mode == FastLoaderMode.CacheHit && loadedCache != null; }
         }
 
+        public static bool ShouldUseXmlCache
+        {
+            get { return Settings == null || Settings.UseXmlCache; }
+        }
+
+        public static bool ShouldUseTextureCache
+        {
+            get { return Settings == null || Settings.UseTextureCache; }
+        }
+
+        public static bool ShouldUseAtlasCache
+        {
+            get { return Settings == null || Settings.UseAtlasCache; }
+        }
+
         public static IReadOnlyList<CacheEntry> CacheEntries
         {
             get
@@ -198,10 +213,12 @@ namespace FastLoader
                     inputHash = FastLoaderHasher.ComputeFastModListHash();
                 }
 
-                if (Settings != null && !Settings.CacheEnabled)
+                if (!ShouldUseXmlCache)
                 {
                     Mode = FastLoaderMode.Disabled;
-                    statusReason = "disabled by settings; profiling vanilla XML routine";
+                    statusReason = Settings != null && !Settings.CacheEnabled
+                        ? "disabled by settings; profiling vanilla XML routine"
+                        : "XML cache disabled by settings";
                     FastProfile.SetStatus("DISABLED", statusReason, inputHash);
                     return;
                 }
@@ -262,6 +279,7 @@ namespace FastLoader
 
             string activeLanguage = FastLoaderCacheState.GetCurrentActiveLanguage();
             if (!string.IsNullOrEmpty(state.ActiveLanguage) &&
+                ShouldUseXmlCache &&
                 !string.Equals(state.ActiveLanguage, activeLanguage ?? string.Empty, StringComparison.Ordinal))
             {
                 reasons.Add("active language changed since the language cache was built: " + state.ActiveLanguage + " -> " + (activeLanguage ?? string.Empty));
@@ -269,6 +287,7 @@ namespace FastLoader
 
             string defaultLanguage = FastLoaderCacheState.GetCurrentDefaultLanguage();
             if (!string.IsNullOrEmpty(state.DefaultLanguage) &&
+                ShouldUseXmlCache &&
                 !string.Equals(state.DefaultLanguage, defaultLanguage ?? string.Empty, StringComparison.Ordinal))
             {
                 reasons.Add("default language changed since the language cache was built: " + state.DefaultLanguage + " -> " + (defaultLanguage ?? string.Empty));

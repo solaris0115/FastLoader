@@ -677,7 +677,7 @@ namespace FastLoader
         private static bool IsEnabled()
         {
             return !FastLoaderRuntime.IsCacheFallbackActive &&
-                (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
+                FastLoaderRuntime.ShouldUseAtlasCache;
         }
 
         private static bool ShouldCompressAtlasCache()

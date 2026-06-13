@@ -13,6 +13,11 @@ namespace FastLoader
 
         public static bool TryGetInsufficientSpaceMessage(out string message)
         {
+            return TryGetInsufficientSpaceMessage(true, true, true, out message);
+        }
+
+        public static bool TryGetInsufficientSpaceMessage(bool includeXml, bool includeTexture, bool includeAtlas, out string message)
+        {
             message = null;
 
             try
@@ -25,8 +30,8 @@ namespace FastLoader
                     return false;
                 }
 
-                long existingCacheBytes = GetExistingCacheBytes(root);
-                long estimatedBuildBytes = EstimateBuildBytes(existingCacheBytes);
+                long existingCacheBytes = GetExistingCacheBytes(root, includeXml, includeTexture, includeAtlas);
+                long estimatedBuildBytes = EstimateBuildBytes(existingCacheBytes, includeXml, includeTexture, includeAtlas);
                 long availableAfterCleanup = GetAvailableBytes(driveRoot) + existingCacheBytes;
                 long requiredBytes = estimatedBuildBytes + MinimumReserveBytes;
 
@@ -51,26 +56,39 @@ namespace FastLoader
             }
         }
 
-        private static long EstimateBuildBytes(long existingCacheBytes)
+        private static long EstimateBuildBytes(long existingCacheBytes, bool includeXml, bool includeTexture, bool includeAtlas)
         {
-            long estimated = XmlLanguageReserveBytes;
-            estimated = SafeAdd(estimated, TextureRawCache.EstimateBuildCacheBytes());
-            estimated = SafeAdd(estimated, StaticAtlasCache.EstimateBuildCacheBytes());
+            long estimated = 0L;
+            if (includeXml)
+            {
+                estimated = SafeAdd(estimated, XmlLanguageReserveBytes);
+            }
+
+            if (includeTexture)
+            {
+                estimated = SafeAdd(estimated, TextureRawCache.EstimateBuildCacheBytes());
+            }
+
+            if (includeAtlas)
+            {
+                estimated = SafeAdd(estimated, StaticAtlasCache.EstimateBuildCacheBytes());
+            }
 
             if (existingCacheBytes > estimated)
             {
                 estimated = existingCacheBytes;
             }
 
-            if (estimated < MinimumUnknownBuildBytes)
+            long minimum = includeTexture || includeAtlas ? MinimumUnknownBuildBytes : XmlLanguageReserveBytes;
+            if (estimated < minimum)
             {
-                estimated = MinimumUnknownBuildBytes;
+                estimated = minimum;
             }
 
             return estimated;
         }
 
-        private static long GetExistingCacheBytes(string root)
+        private static long GetExistingCacheBytes(string root, bool includeXml, bool includeTexture, bool includeAtlas)
         {
             if (!Directory.Exists(root))
             {
@@ -82,7 +100,7 @@ namespace FastLoader
             for (int i = 0; i < files.Length; i++)
             {
                 string path = files[i];
-                if (!IsFastLoaderCacheFile(path))
+                if (!IsFastLoaderCacheFile(path, includeXml, includeTexture, includeAtlas))
                 {
                     continue;
                 }
@@ -99,18 +117,35 @@ namespace FastLoader
             return total;
         }
 
-        private static bool IsFastLoaderCacheFile(string path)
+        private static bool IsFastLoaderCacheFile(string path, bool includeXml, bool includeTexture, bool includeAtlas)
         {
             string extension = Path.GetExtension(path);
             string fileName = Path.GetFileName(path);
-            return string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(fileName, "resolved_defs.xml", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(fileName, "cache_state.xml", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(extension, ".texcache", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(extension, ".flang", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(extension, ".finj", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(extension, ".atlascache", StringComparison.OrdinalIgnoreCase) ||
-                path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
+            if (string.Equals(fileName, "cache_state.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                return includeXml || includeTexture || includeAtlas;
+            }
+
+            if (includeXml &&
+                (string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(fileName, "resolved_defs.xml", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(extension, ".flang", StringComparison.OrdinalIgnoreCase) ||
+                 string.Equals(extension, ".finj", StringComparison.OrdinalIgnoreCase)))
+            {
+                return true;
+            }
+
+            if (includeTexture && string.Equals(extension, ".texcache", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (includeAtlas && string.Equals(extension, ".atlascache", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            return path.EndsWith(".tmp", StringComparison.OrdinalIgnoreCase);
         }
 
         private static long GetAvailableBytes(string driveRoot)

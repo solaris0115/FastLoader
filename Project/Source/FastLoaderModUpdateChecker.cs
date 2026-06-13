@@ -63,7 +63,10 @@ namespace FastLoader
                 started = true;
             }
 
-            if (FastLoaderRuntime.Settings != null && !FastLoaderRuntime.Settings.CacheEnabled)
+            if (FastLoaderRuntime.Settings != null &&
+                !FastLoaderRuntime.Settings.UseXmlCache &&
+                !FastLoaderRuntime.Settings.UseTextureCache &&
+                !FastLoaderRuntime.Settings.UseAtlasCache)
             {
                 return;
             }
@@ -75,7 +78,10 @@ namespace FastLoader
                 return;
             }
 
-            if (FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit &&
+            if (FastLoaderRuntime.ShouldUseXmlCache &&
+                (FastLoaderRuntime.Settings == null ||
+                 (!FastLoaderRuntime.Settings.UseTextureCache && !FastLoaderRuntime.Settings.UseAtlasCache)) &&
+                FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit &&
                 string.Equals(FastLoaderRuntime.LastStatusReason, "cache files missing", StringComparison.OrdinalIgnoreCase))
             {
                 Log.Message("[FastLoader] Cache state check skipped because XML cache files are missing.");
@@ -111,7 +117,7 @@ namespace FastLoader
                 return;
             }
 
-            if (FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit)
+            if (FastLoaderRuntime.ShouldUseXmlCache && FastLoaderRuntime.LastMode != FastLoaderMode.CacheHit)
             {
                 runningTask = Task.Run(delegate
                 {
@@ -340,7 +346,8 @@ namespace FastLoader
 
             string active = FastLoaderCacheState.GetCurrentActiveLanguage();
             string cachedActive = state.ActiveLanguage ?? string.Empty;
-            if (!string.IsNullOrEmpty(cachedActive) &&
+            if (FastLoaderRuntime.ShouldUseXmlCache &&
+                !string.IsNullOrEmpty(cachedActive) &&
                 !string.Equals(cachedActive, active ?? string.Empty, StringComparison.Ordinal))
             {
                 reasons.Add("Active language changed since the language cache was built: " + cachedActive + " -> " + (active ?? string.Empty) + ".");
@@ -348,7 +355,8 @@ namespace FastLoader
 
             string defaultLanguage = FastLoaderCacheState.GetCurrentDefaultLanguage();
             string cachedDefault = state.DefaultLanguage ?? string.Empty;
-            if (!string.IsNullOrEmpty(cachedDefault) &&
+            if (FastLoaderRuntime.ShouldUseXmlCache &&
+                !string.IsNullOrEmpty(cachedDefault) &&
                 !string.Equals(cachedDefault, defaultLanguage ?? string.Empty, StringComparison.Ordinal))
             {
                 reasons.Add("Default language changed since the language cache was built: " + cachedDefault + " -> " + (defaultLanguage ?? string.Empty) + ".");
@@ -713,6 +721,14 @@ namespace FastLoader
 
     internal static class FastLoaderCacheUiActions
     {
+        private enum CacheFileScope
+        {
+            All,
+            Xml,
+            Texture,
+            Atlas
+        }
+
         public static void StartBuildAllCaches()
         {
             try
@@ -745,7 +761,7 @@ namespace FastLoader
                 }
 
                 Messages.Message("XML/language cache step done. Languages: " + result.LanguageCachesBuilt + ". Atlas caches: " + result.AtlasesSaved + ". Building texture cache...", MessageTypeDefOf.TaskCompletion, false);
-                Find.WindowStack.Add(new TextureCacheBuildWindow(true));
+                Find.WindowStack.Add(new TextureCacheBuildWindow(TextureCacheBuildFailureCleanup.All));
             }
             catch (Exception ex)
             {
@@ -753,6 +769,101 @@ namespace FastLoader
                 bool partialRemoved = TryDeleteAfterFailedBuild();
                 ShowFailurePopup("Build Cache failed", "FastLoader could not build caches.\n" +
                     (partialRemoved ? "Partial cache files were removed." : "Partial cache files could not be fully removed.") +
+                    "\n\nReason: " + FormatException(ex));
+            }
+        }
+
+        public static void StartBuildXmlCaches()
+        {
+            try
+            {
+                string diskSpaceMessage;
+                if (FastLoaderDiskSpaceGuard.TryGetInsufficientSpaceMessage(true, false, false, out diskSpaceMessage))
+                {
+                    Log.Warning("[FastLoader] Build XML Cache skipped by disk space guard.\n" + diskSpaceMessage);
+                    ShowFailurePopup("Build XML Cache warning", diskSpaceMessage);
+                    return;
+                }
+
+                DeleteXmlAndLanguageCaches();
+                FastLoaderBuildResult result = FastLoaderBridge.BuildXmlAndLanguageCaches();
+                if (!result.XmlCacheBuilt)
+                {
+                    throw new InvalidOperationException("XML cache build failed: " + (FastLoaderRuntime.LastXmlCacheBuildFailureReason ?? "unknown reason"));
+                }
+
+                if (result.LanguageCachesBuilt <= 0)
+                {
+                    throw new InvalidOperationException("Language cache build failed.");
+                }
+
+                Messages.Message("XML cache built. Languages: " + result.LanguageCachesBuilt + ".", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to build XML caches.\n" + ex);
+                bool partialRemoved = TryDeleteAfterFailedXmlBuild();
+                ShowFailurePopup("Build XML Cache failed", "FastLoader could not build XML caches.\n" +
+                    (partialRemoved ? "Partial XML cache files were removed." : "Partial XML cache files could not be fully removed.") +
+                    "\n\nReason: " + FormatException(ex));
+            }
+        }
+
+        public static void StartBuildTextureCache()
+        {
+            try
+            {
+                string diskSpaceMessage;
+                if (FastLoaderDiskSpaceGuard.TryGetInsufficientSpaceMessage(false, true, false, out diskSpaceMessage))
+                {
+                    Log.Warning("[FastLoader] Build Texture Cache skipped by disk space guard.\n" + diskSpaceMessage);
+                    ShowFailurePopup("Build Texture Cache warning", diskSpaceMessage);
+                    return;
+                }
+
+                FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Texture);
+                Find.WindowStack.Add(new TextureCacheBuildWindow(TextureCacheBuildFailureCleanup.Texture));
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to start texture cache build.\n" + ex);
+                bool partialRemoved = TryDeleteAfterFailedTextureBuild();
+                ShowFailurePopup("Build Texture Cache failed", "FastLoader could not build texture cache.\n" +
+                    (partialRemoved ? "Partial texture cache files were removed." : "Partial texture cache files could not be fully removed.") +
+                    "\n\nReason: " + FormatException(ex));
+            }
+        }
+
+        public static void StartBuildAtlasCache()
+        {
+            try
+            {
+                string diskSpaceMessage;
+                if (FastLoaderDiskSpaceGuard.TryGetInsufficientSpaceMessage(false, false, true, out diskSpaceMessage))
+                {
+                    Log.Warning("[FastLoader] Build Atlas Cache skipped by disk space guard.\n" + diskSpaceMessage);
+                    ShowFailurePopup("Build Atlas Cache warning", diskSpaceMessage);
+                    return;
+                }
+
+                StaticAtlasCache.DeleteAll();
+                FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Atlas);
+                int count = FastLoaderBridge.BuildStaticAtlasCache();
+                if (count > 0)
+                {
+                    Messages.Message("Atlas cache built: " + count + " atlases saved.", MessageTypeDefOf.TaskCompletion, false);
+                }
+                else
+                {
+                    Messages.Message("No static atlases are available yet. Load to the main menu first, then try again.", MessageTypeDefOf.RejectInput, false);
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to build atlas cache.\n" + ex);
+                bool partialRemoved = TryDeleteAfterFailedAtlasBuild();
+                ShowFailurePopup("Build Atlas Cache failed", "FastLoader could not build atlas cache.\n" +
+                    (partialRemoved ? "Partial atlas cache files were removed." : "Partial atlas cache files could not be fully removed.") +
                     "\n\nReason: " + FormatException(ex));
             }
         }
@@ -772,12 +883,69 @@ namespace FastLoader
             }
         }
 
+        public static void ResetXmlCaches()
+        {
+            try
+            {
+                DeleteXmlAndLanguageCaches();
+                EnsureNoCacheFilesRemain(CacheFileScope.Xml);
+                Messages.Message("FastLoader XML caches cleared.", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to clear XML caches.\n" + ex);
+                ShowFailurePopup("Remove XML Cache failed", "FastLoader could not remove XML cache files.\n\n" + ex.Message);
+            }
+        }
+
+        public static void ResetTextureCache()
+        {
+            try
+            {
+                TextureRawCache.DeleteAll();
+                FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Texture);
+                EnsureNoCacheFilesRemain(CacheFileScope.Texture);
+                Messages.Message("FastLoader texture cache cleared.", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to clear texture cache.\n" + ex);
+                ShowFailurePopup("Remove Texture Cache failed", "FastLoader could not remove texture cache files.\n\n" + ex.Message);
+            }
+        }
+
+        public static void ResetAtlasCache()
+        {
+            try
+            {
+                StaticAtlasCache.DeleteAll();
+                FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Atlas);
+                EnsureNoCacheFilesRemain(CacheFileScope.Atlas);
+                Messages.Message("FastLoader atlas cache cleared.", MessageTypeDefOf.TaskCompletion, false);
+            }
+            catch (Exception ex)
+            {
+                Log.Error("[FastLoader] Failed to clear atlas cache.\n" + ex);
+                ShowFailurePopup("Remove Atlas Cache failed", "FastLoader could not remove atlas cache files.\n\n" + ex.Message);
+            }
+        }
+
         public static void ReportBuildFailureAndDeleteCaches(string detail, Exception exception)
         {
             Log.Error("[FastLoader] Build Cache failed.\n" + exception);
             bool partialRemoved = TryDeleteAfterFailedBuild();
             ShowFailurePopup("Build Cache failed", "FastLoader could not build caches.\n" +
                 (partialRemoved ? "Partial cache files were removed." : "Partial cache files could not be fully removed.") +
+                "\n\n" + (detail ?? "Unknown failure.") +
+                "\nReason: " + FormatException(exception));
+        }
+
+        public static void ReportTextureBuildFailureAndDeleteTextureCache(string detail, Exception exception)
+        {
+            Log.Error("[FastLoader] Build Texture Cache failed.\n" + exception);
+            bool partialRemoved = TryDeleteAfterFailedTextureBuild();
+            ShowFailurePopup("Build Texture Cache failed", "FastLoader could not build texture cache.\n" +
+                (partialRemoved ? "Partial texture cache files were removed." : "Partial texture cache files could not be fully removed.") +
                 "\n\n" + (detail ?? "Unknown failure.") +
                 "\nReason: " + FormatException(exception));
         }
@@ -797,7 +965,66 @@ namespace FastLoader
             }
         }
 
+        private static bool TryDeleteAfterFailedXmlBuild()
+        {
+            try
+            {
+                DeleteXmlAndLanguageCaches();
+                EnsureNoCacheFilesRemain(CacheFileScope.Xml);
+                return true;
+            }
+            catch (Exception deleteEx)
+            {
+                Log.Error("[FastLoader] Failed to remove partial XML cache files after build failure.\n" + deleteEx);
+                return false;
+            }
+        }
+
+        private static bool TryDeleteAfterFailedTextureBuild()
+        {
+            try
+            {
+                TextureRawCache.DeleteAll();
+                FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Texture);
+                EnsureNoCacheFilesRemain(CacheFileScope.Texture);
+                return true;
+            }
+            catch (Exception deleteEx)
+            {
+                Log.Error("[FastLoader] Failed to remove partial texture cache files after build failure.\n" + deleteEx);
+                return false;
+            }
+        }
+
+        private static bool TryDeleteAfterFailedAtlasBuild()
+        {
+            try
+            {
+                StaticAtlasCache.DeleteAll();
+                FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Atlas);
+                EnsureNoCacheFilesRemain(CacheFileScope.Atlas);
+                return true;
+            }
+            catch (Exception deleteEx)
+            {
+                Log.Error("[FastLoader] Failed to remove partial atlas cache files after build failure.\n" + deleteEx);
+                return false;
+            }
+        }
+
+        private static void DeleteXmlAndLanguageCaches()
+        {
+            FastLoaderRuntime.DeleteXmlCache();
+            LanguageBinaryCache.DeleteAll();
+            FastLoaderCacheState.RemoveStages(FastLoaderCacheKind.Xml, FastLoaderCacheKind.Language);
+        }
+
         private static void EnsureNoCacheFilesRemain()
+        {
+            EnsureNoCacheFilesRemain(CacheFileScope.All);
+        }
+
+        private static void EnsureNoCacheFilesRemain(CacheFileScope scope)
         {
             string root = Path.Combine(GenFilePaths.ConfigFolderPath, "FastLoader");
             if (!Directory.Exists(root))
@@ -811,18 +1038,55 @@ namespace FastLoader
                 string path = remaining[i];
                 string extension = Path.GetExtension(path);
                 string fileName = Path.GetFileName(path);
-                if (string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
+                if (IsCacheFileForScope(path, fileName, extension, scope))
+                {
+                    throw new IOException("Cache file still exists: " + path);
+                }
+            }
+        }
+
+        private static bool IsCacheFileForScope(string path, string fileName, string extension, CacheFileScope scope)
+        {
+            if (string.Equals(fileName, "cache_state.xml.tmp", StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+
+            if (scope == CacheFileScope.All)
+            {
+                return string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, "resolved_defs.xml", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(fileName, "cache_state.xml", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".tmp", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".texcache", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".flang", StringComparison.OrdinalIgnoreCase) ||
                     string.Equals(extension, ".finj", StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(extension, ".atlascache", StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new IOException("Cache file still exists: " + path);
-                }
+                    string.Equals(extension, ".atlascache", StringComparison.OrdinalIgnoreCase);
             }
+
+            if (scope == CacheFileScope.Xml)
+            {
+                return string.Equals(fileName, "manifest.xml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(fileName, "resolved_defs.xml", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".flang", StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(extension, ".finj", StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(extension, ".tmp", StringComparison.OrdinalIgnoreCase) && IsInCacheFolder(path, "Cache")) ||
+                    (string.Equals(extension, ".tmp", StringComparison.OrdinalIgnoreCase) && IsInCacheFolder(path, "LanguageCache"));
+            }
+
+            if (scope == CacheFileScope.Texture)
+            {
+                return string.Equals(extension, ".texcache", StringComparison.OrdinalIgnoreCase) ||
+                    (string.Equals(extension, ".tmp", StringComparison.OrdinalIgnoreCase) && IsInCacheFolder(path, "TextureCache"));
+            }
+
+            return string.Equals(extension, ".atlascache", StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(extension, ".tmp", StringComparison.OrdinalIgnoreCase) && IsInCacheFolder(path, "StaticAtlasCache"));
+        }
+
+        private static bool IsInCacheFolder(string path, string folderName)
+        {
+            return path != null && path.IndexOf(Path.DirectorySeparatorChar + folderName + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) >= 0;
         }
 
         private static void ShowFailurePopup(string title, string message)

@@ -76,7 +76,7 @@ namespace FastLoader
                 return false;
             }
 
-            if (FastLoaderRuntime.Settings != null && !FastLoaderRuntime.Settings.CacheEnabled)
+            if (!FastLoaderRuntime.ShouldUseTextureCache)
             {
                 return false;
             }

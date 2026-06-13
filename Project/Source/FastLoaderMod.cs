@@ -53,6 +53,31 @@ namespace FastLoader
                 settings.Write();
             }
 
+            bool useXml = settings.XmlCacheEnabled;
+            listing.CheckboxLabeled("Use XML cache", ref useXml, null, 30f, 1f);
+            if (useXml != settings.XmlCacheEnabled)
+            {
+                settings.XmlCacheEnabled = useXml;
+                settings.Write();
+            }
+
+            bool useTexture = settings.TextureCacheEnabled;
+            listing.CheckboxLabeled("Use Texture cache", ref useTexture, null, 30f, 1f);
+            if (useTexture != settings.TextureCacheEnabled)
+            {
+                settings.TextureCacheEnabled = useTexture;
+                settings.Write();
+            }
+
+            bool useAtlas = settings.AtlasCacheEnabled;
+            listing.CheckboxLabeled("Use Atlas cache", ref useAtlas, null, 30f, 1f);
+            if (useAtlas != settings.AtlasCacheEnabled)
+            {
+                settings.AtlasCacheEnabled = useAtlas;
+                settings.Write();
+            }
+
+            listing.Gap(6f);
             bool compressAtlas = settings.AtlasCacheCompressionEnabled;
             listing.CheckboxLabeled("Compress atlas cache", ref compressAtlas, null, 30f, 1f);
             if (compressAtlas != settings.AtlasCacheCompressionEnabled)
@@ -86,31 +111,46 @@ namespace FastLoader
             }
 
             listing.Gap(4f);
-            Rect buttonRow = listing.GetRect(30f);
-            const float gap = 4f;
-            float buttonWidth = Mathf.Min(220f, (buttonRow.width - gap) / 2f);
-            Rect buildAllRect = new Rect(buttonRow.x, buttonRow.y, buttonWidth, buttonRow.height);
-            Rect resetAllRect = new Rect(buildAllRect.xMax + gap, buttonRow.y, buttonWidth, buttonRow.height);
-
-            if (Widgets.ButtonText(buildAllRect, "Build Cache"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Build XML, language, texture, and atlas caches from the current loaded data?",
-                    FastLoaderCacheUiActions.StartBuildAllCaches,
-                    true));
-            }
-
-            if (Widgets.ButtonText(resetAllRect, "Remove Cache"))
-            {
-                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(
-                    "Remove all FastLoader cache files (XML + language + texture + atlas)? Use Build Cache to create them again.",
-                    FastLoaderCacheUiActions.ResetAllCaches,
-                    true));
-            }
+            DrawCacheActionRow(
+                listing,
+                "All",
+                "Build All",
+                "Remove All",
+                "Build XML, language, texture, and atlas caches from the current loaded data?",
+                FastLoaderCacheUiActions.StartBuildAllCaches,
+                "Remove all FastLoader cache files (XML + language + texture + atlas)?",
+                FastLoaderCacheUiActions.ResetAllCaches);
+            DrawCacheActionRow(
+                listing,
+                "XML",
+                "Build XML",
+                "Remove XML",
+                "Build XML, language, and DefInjected caches from the current loaded data?",
+                FastLoaderCacheUiActions.StartBuildXmlCaches,
+                "Remove XML, language, and DefInjected cache files?",
+                FastLoaderCacheUiActions.ResetXmlCaches);
+            DrawCacheActionRow(
+                listing,
+                "Texture",
+                "Build Texture",
+                "Remove Texture",
+                "Build texture cache from the current loaded textures?",
+                FastLoaderCacheUiActions.StartBuildTextureCache,
+                "Remove texture cache files?",
+                FastLoaderCacheUiActions.ResetTextureCache);
+            DrawCacheActionRow(
+                listing,
+                "Atlas",
+                "Build Atlas",
+                "Remove Atlas",
+                "Build static atlas cache from the current loaded atlases?",
+                FastLoaderCacheUiActions.StartBuildAtlasCache,
+                "Remove static atlas cache files?",
+                FastLoaderCacheUiActions.ResetAtlasCache);
 
             listing.Gap(4f);
             Rect openFolderRow = listing.GetRect(30f);
-            Rect openFolderRect = new Rect(openFolderRow.x, openFolderRow.y, buttonWidth, openFolderRow.height);
+            Rect openFolderRect = new Rect(openFolderRow.x, openFolderRow.y, Mathf.Min(220f, openFolderRow.width), openFolderRow.height);
             if (Widgets.ButtonText(openFolderRect, "Open Cache Folder"))
             {
                 OpenCacheFolderFromSettings();
@@ -154,6 +194,36 @@ namespace FastLoader
             }
 
             listing.End();
+        }
+
+        private static void DrawCacheActionRow(
+            Listing_Standard listing,
+            string label,
+            string buildLabel,
+            string removeLabel,
+            string buildConfirmation,
+            Action buildAction,
+            string removeConfirmation,
+            Action removeAction)
+        {
+            Rect row = listing.GetRect(30f);
+            const float gap = 6f;
+            float labelWidth = Mathf.Min(92f, row.width * 0.24f);
+            float buttonWidth = Mathf.Min(150f, (row.width - labelWidth - gap * 2f) / 2f);
+            Rect labelRect = new Rect(row.x, row.y, labelWidth, row.height);
+            Rect buildRect = new Rect(labelRect.xMax + gap, row.y, buttonWidth, row.height);
+            Rect removeRect = new Rect(buildRect.xMax + gap, row.y, buttonWidth, row.height);
+
+            Widgets.Label(labelRect, label);
+            if (Widgets.ButtonText(buildRect, buildLabel))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(buildConfirmation, buildAction, true));
+            }
+
+            if (Widgets.ButtonText(removeRect, removeLabel))
+            {
+                Find.WindowStack.Add(Dialog_MessageBox.CreateConfirmation(removeConfirmation, removeAction, true));
+            }
         }
 
         private static void OpenCacheFolderFromSettings()

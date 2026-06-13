@@ -135,6 +135,46 @@ namespace FastLoader
             ClearIgnoredUpdateSignature();
         }
 
+        public static void RemoveStages(params string[] kinds)
+        {
+            if (kinds == null || kinds.Length == 0)
+            {
+                return;
+            }
+
+            try
+            {
+                FastLoaderCacheStateData data;
+                if (!TryRead(out data) || data == null || data.Stages == null || data.Stages.Count == 0)
+                {
+                    return;
+                }
+
+                for (int i = data.Stages.Count - 1; i >= 0; i--)
+                {
+                    FastLoaderCacheStageState stage = data.Stages[i];
+                    if (stage == null || ContainsKind(kinds, stage.Kind))
+                    {
+                        data.Stages.RemoveAt(i);
+                    }
+                }
+
+                if (data.Stages.Count == 0)
+                {
+                    Delete();
+                    return;
+                }
+
+                WriteState(data);
+                ClearIgnoredUpdateSignature();
+                Log.Message("[FastLoader] Cache state stages removed: " + string.Join(", ", kinds));
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("[FastLoader] Failed to remove cache state stages.\n" + ex);
+            }
+        }
+
         private static FastLoaderCacheStateData BuildCurrentState()
         {
             FastLoaderCacheStateData data = new FastLoaderCacheStateData();
@@ -185,6 +225,19 @@ namespace FastLoader
             stage.Success = success;
             stage.ItemCount = itemCount;
             stage.BuiltUtc = DateTime.UtcNow;
+        }
+
+        private static bool ContainsKind(string[] kinds, string value)
+        {
+            for (int i = 0; i < kinds.Length; i++)
+            {
+                if (string.Equals(kinds[i], value, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void WriteState(FastLoaderCacheStateData data)

@@ -340,15 +340,14 @@ namespace FastLoader
         private static bool IsEnabled()
         {
             return !FastLoaderRuntime.IsCacheFallbackActive &&
-                (FastLoaderRuntime.Settings == null || FastLoaderRuntime.Settings.CacheEnabled);
+                FastLoaderRuntime.ShouldUseXmlCache;
         }
 
         private static bool IsBuildEnabled()
         {
             return !FastLoaderRuntime.IsCacheFallbackActive &&
                 (FastLoaderRuntime.IsManualBuildActive ||
-                 FastLoaderRuntime.Settings == null ||
-                 FastLoaderRuntime.Settings.CacheEnabled);
+                 FastLoaderRuntime.ShouldUseXmlCache);
         }
 
         private static string ComputeLanguageHash(LoadedLanguage language)
