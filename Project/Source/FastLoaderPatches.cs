@@ -85,6 +85,15 @@ namespace FastLoader
         }
     }
 
+    [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.LoadAllActiveMods))]
+    internal static class Patch_LoadedModManager_LoadAllActiveMods_FastLoaderDebug
+    {
+        private static void Postfix()
+        {
+            FastLoaderDebug.LogPatchStateAfterAllMods();
+        }
+    }
+
     [HarmonyPatch(typeof(Root), nameof(Root.Update))]
     internal static class Patch_Root_Update_FastLoaderModUpdateChecker
     {

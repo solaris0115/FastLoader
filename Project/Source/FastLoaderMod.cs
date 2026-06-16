@@ -27,7 +27,6 @@ namespace FastLoader
                 Harmony harmony = new Harmony("solaris.fastloader");
                 harmony.PatchAll(typeof(FastLoaderMod).Assembly);
                 HarmonyPatchProfiler.TryInstall(harmony);
-                FastLoaderDebug.LogPatchState();
                 Log.Message("[FastLoader] Harmony patches installed.");
             }
             catch (Exception ex)

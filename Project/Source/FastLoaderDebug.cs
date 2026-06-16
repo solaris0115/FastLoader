@@ -13,26 +13,33 @@ namespace FastLoader
     {
         private const string HarmonyId = "solaris.fastloader";
         private static readonly FieldInfo ModTexturesField = AccessTools.Field(typeof(ModContentPack), "textures");
+        private static bool loggedAfterAllModsPatchState;
         private static bool loggedMainMenuPatchState;
 
         public static void LogPatchState()
         {
+            LogPatchState("manual");
+        }
+
+        public static void LogPatchState(string phase)
+        {
             try
             {
-                LogPatchTarget("LoadedLanguage.LoadData", AccessTools.Method(typeof(LoadedLanguage), nameof(LoadedLanguage.LoadData)));
-                LogPatchTarget("LoadedLanguage.InjectIntoData_BeforeImpliedDefs", AccessTools.Method(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_BeforeImpliedDefs)));
-                LogPatchTarget("LoadedLanguage.InjectIntoData_AfterImpliedDefs", AccessTools.Method(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_AfterImpliedDefs)));
-                LogPatchTarget("LoadedModManager.LoadModXML", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.LoadModXML)));
-                LogPatchTarget("LoadedModManager.CombineIntoUnifiedXML", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.CombineIntoUnifiedXML)));
-                LogPatchTarget("LoadedModManager.ApplyPatches", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.ApplyPatches)));
-                LogPatchTarget("LoadedModManager.ParseAndProcessXML", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.ParseAndProcessXML)));
-                LogPatchTarget("ModContentPack.ReloadContentInt", AccessTools.Method(typeof(ModContentPack), "ReloadContentInt"));
-                LogPatchTarget("StaticTextureAtlas.Bake", AccessTools.Method(typeof(StaticTextureAtlas), nameof(StaticTextureAtlas.Bake)));
-                LogPatchTarget("MainMenuDrawer.Init", AccessTools.Method(typeof(MainMenuDrawer), nameof(MainMenuDrawer.Init)));
+                string labelPrefix = string.IsNullOrEmpty(phase) ? string.Empty : "[" + phase + "] ";
+                LogPatchTarget(labelPrefix + "LoadedLanguage.LoadData", AccessTools.Method(typeof(LoadedLanguage), nameof(LoadedLanguage.LoadData)));
+                LogPatchTarget(labelPrefix + "LoadedLanguage.InjectIntoData_BeforeImpliedDefs", AccessTools.Method(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_BeforeImpliedDefs)));
+                LogPatchTarget(labelPrefix + "LoadedLanguage.InjectIntoData_AfterImpliedDefs", AccessTools.Method(typeof(LoadedLanguage), nameof(LoadedLanguage.InjectIntoData_AfterImpliedDefs)));
+                LogPatchTarget(labelPrefix + "LoadedModManager.LoadModXML", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.LoadModXML)));
+                LogPatchTarget(labelPrefix + "LoadedModManager.CombineIntoUnifiedXML", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.CombineIntoUnifiedXML)));
+                LogPatchTarget(labelPrefix + "LoadedModManager.ApplyPatches", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.ApplyPatches)));
+                LogPatchTarget(labelPrefix + "LoadedModManager.ParseAndProcessXML", AccessTools.Method(typeof(LoadedModManager), nameof(LoadedModManager.ParseAndProcessXML)));
+                LogPatchTarget(labelPrefix + "ModContentPack.ReloadContentInt", AccessTools.Method(typeof(ModContentPack), "ReloadContentInt"));
+                LogPatchTarget(labelPrefix + "StaticTextureAtlas.Bake", AccessTools.Method(typeof(StaticTextureAtlas), nameof(StaticTextureAtlas.Bake)));
+                LogPatchTarget(labelPrefix + "MainMenuDrawer.Init", AccessTools.Method(typeof(MainMenuDrawer), nameof(MainMenuDrawer.Init)));
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Failed to inspect Harmony patch state.\n" + ex);
+                Log.Warning("[FastLoader] Failed to inspect Harmony patch state at " + phase + ".\n" + ex);
             }
         }
 
@@ -44,7 +51,18 @@ namespace FastLoader
             }
 
             loggedMainMenuPatchState = true;
-            LogPatchState();
+            LogPatchState("main menu");
+        }
+
+        public static void LogPatchStateAfterAllMods()
+        {
+            if (loggedAfterAllModsPatchState)
+            {
+                return;
+            }
+
+            loggedAfterAllModsPatchState = true;
+            LogPatchState("after all active mods");
         }
 
         public static string DescribeMod(ModContentPack mod)
