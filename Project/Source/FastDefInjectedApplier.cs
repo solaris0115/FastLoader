@@ -149,7 +149,10 @@ namespace FastLoader
             catch (Exception ex)
             {
                 FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Language, Describe(language) + " DefInjected apply failed: " + ex.GetType().Name);
-                Log.Warning("[FastLoader] Fast DefInjected apply failed. Falling back to vanilla language injection.\n" + ex);
+                Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                    "DefInjected.FastApply",
+                    "language=" + Describe(language),
+                    ex));
                 return false;
             }
         }
@@ -282,6 +285,15 @@ namespace FastLoader
                     error += " -> " + ex.InnerException.Message;
                 }
 
+                Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                    "DefInjected.ApplyItem",
+                    "defType=" + package.defType +
+                    ", defName=" + defName +
+                    ", path=" + displayPath +
+                    ", normalizedPath=" + (path != null ? path.NormalizedPath : string.Empty) +
+                    ", suggestedPath=" + (path != null ? path.SuggestedPath : string.Empty) +
+                    ", fileSource=" + (injection != null ? injection.fileSource : string.Empty),
+                    ex));
                 package.loadErrors.Add(error);
                 return false;
             }

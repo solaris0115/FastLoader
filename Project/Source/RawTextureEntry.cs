@@ -151,8 +151,9 @@ namespace FastLoader
                     return true;
                 }
             }
-            catch (Exception)
+            catch (Exception ex)
             {
+                Verse.Log.Warning("[FastLoader] Texture cache file read failed. path=" + path + ", expectedHash=" + expectedHash + "\n" + ex);
                 return false;
             }
         }

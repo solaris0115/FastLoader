@@ -92,7 +92,10 @@ namespace FastLoader
                 catch (Exception ex)
                 {
                     FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Atlas, "static atlas restore failed for " + atlas.groupKey + ": " + ex.GetType().Name);
-                    Log.Warning("[FastLoader] Static atlas cache restore failed for " + atlas.groupKey + ". Falling back to vanilla bake.\n" + ex);
+                    Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                        "StaticAtlasCache.Restore",
+                        FastLoaderDebug.DescribeAtlas(atlas, textures) + "\ncachePath=" + path,
+                        ex));
                     return false;
                 }
             }
@@ -197,7 +200,9 @@ namespace FastLoader
                     record.ColorTexture = CaptureTexture(colorTexture);
                     if (record.ColorTexture == null)
                     {
-                        Log.Warning("[FastLoader] Static atlas cache skipped for " + atlas.groupKey + ": color atlas texture is not readable.");
+                        Log.Warning("[FastLoader] Static atlas cache skipped: color atlas texture is not readable.\n" +
+                            FastLoaderDebug.DescribeAtlas(atlas, textures) +
+                            "\nColor texture: " + FastLoaderDebug.DescribeTextureOrigin(colorTexture));
                         return false;
                     }
 
@@ -206,7 +211,9 @@ namespace FastLoader
                         record.MaskTexture = CaptureTexture(maskTexture);
                         if (record.MaskTexture == null)
                         {
-                            Log.Warning("[FastLoader] Static atlas cache skipped for " + atlas.groupKey + ": mask atlas texture is not readable.");
+                            Log.Warning("[FastLoader] Static atlas cache skipped: mask atlas texture is not readable.\n" +
+                                FastLoaderDebug.DescribeAtlas(atlas, textures) +
+                                "\nMask texture: " + FastLoaderDebug.DescribeTextureOrigin(maskTexture));
                             return false;
                         }
                     }
@@ -220,6 +227,9 @@ namespace FastLoader
                         StaticTextureAtlasTile tile;
                         if (!tiles.TryGetValue(textures[i], out tile))
                         {
+                            Log.Warning("[FastLoader] Static atlas cache skipped: tile lookup failed.\n" +
+                                FastLoaderDebug.DescribeAtlas(atlas, textures) +
+                                "\nMissing tile texture: " + FastLoaderDebug.DescribeTextureOrigin(textures[i]));
                             return false;
                         }
 
@@ -239,7 +249,10 @@ namespace FastLoader
                 }
                 catch (Exception ex)
                 {
-                    Log.Warning("[FastLoader] Failed to write static atlas cache for " + atlas.groupKey + ".\n" + ex);
+                    Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                        "StaticAtlasCache.Write",
+                        FastLoaderDebug.DescribeAtlas(atlas, textures) + "\ncachePath=" + path,
+                        ex));
                     throw new IOException("Failed to write static atlas cache for " + atlas.groupKey + ": " + ex.GetBaseException().Message, ex);
                 }
             }
@@ -308,7 +321,9 @@ namespace FastLoader
 
             if (payload.RawData.Length > MaxTexturePayloadBytes)
             {
-                Log.Warning("[FastLoader] Static atlas texture capture skipped for " + texture.name + ": raw texture data is too large.");
+                Log.Warning("[FastLoader] Static atlas texture capture skipped: raw texture data is too large.\n" +
+                    FastLoaderDebug.DescribeTextureOrigin(texture) +
+                    "\nrawBytes=" + payload.RawData.Length);
                 return null;
             }
 
@@ -375,7 +390,10 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Static atlas GPU readback failed for " + texture.name + ": " + ex.Message);
+                Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                    "StaticAtlasCache.GPUReadback",
+                    FastLoaderDebug.DescribeTextureOrigin(texture),
+                    ex));
                 return null;
             }
         }
@@ -385,7 +403,9 @@ namespace FastLoader
             long estimatedBytes = (long)source.width * source.height * 4L;
             if (estimatedBytes <= 0L || estimatedBytes > MaxTexturePayloadBytes)
             {
-                Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": estimated payload is too large.");
+                Log.Warning("[FastLoader] Static atlas render texture capture skipped: estimated payload is too large.\n" +
+                    FastLoaderDebug.DescribeTextureOrigin(source) +
+                    "\nestimatedBytes=" + estimatedBytes);
                 return null;
             }
 
@@ -410,7 +430,9 @@ namespace FastLoader
                     request.WaitForCompletion();
                     if (request.hasError)
                     {
-                        Log.Warning("[FastLoader] Static atlas render texture stripe readback failed for " + source.name + ".");
+                        Log.Warning("[FastLoader] Static atlas render texture stripe readback failed.\n" +
+                            FastLoaderDebug.DescribeTextureOrigin(source) +
+                            "\nstripeY=" + y + ", stripeHeight=" + height);
                         return null;
                     }
 
@@ -418,7 +440,10 @@ namespace FastLoader
                     int expectedLength = source.width * height * 4;
                     if (data.Length != expectedLength || data.Length <= 0 || data.Length > chunkBytes)
                     {
-                        Log.Warning("[FastLoader] Static atlas render texture stripe capture skipped for " + source.name + ": raw texture chunk is invalid.");
+                        Log.Warning("[FastLoader] Static atlas render texture stripe capture skipped: raw texture chunk is invalid.\n" +
+                            FastLoaderDebug.DescribeTextureOrigin(source) +
+                            "\nstripeY=" + y + ", stripeHeight=" + height +
+                            ", actualBytes=" + data.Length + ", expectedBytes=" + expectedLength + ", maxChunkBytes=" + chunkBytes);
                         return null;
                     }
 
@@ -440,7 +465,9 @@ namespace FastLoader
 
                 if (chunks.Count == 0 || chunks.Count > MaxTextureChunkCount)
                 {
-                    Log.Warning("[FastLoader] Static atlas render texture capture skipped for " + source.name + ": invalid chunk count.");
+                    Log.Warning("[FastLoader] Static atlas render texture capture skipped: invalid chunk count.\n" +
+                        FastLoaderDebug.DescribeTextureOrigin(source) +
+                        "\nchunkCount=" + chunks.Count + ", maxChunkCount=" + MaxTextureChunkCount);
                     return null;
                 }
 
@@ -461,7 +488,10 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Static atlas render texture capture failed for " + source.name + ": " + ex.Message);
+                Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                    "StaticAtlasCache.RenderTextureCapture",
+                    FastLoaderDebug.DescribeTextureOrigin(source),
+                    ex));
                 return null;
             }
             finally

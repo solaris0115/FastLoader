@@ -79,6 +79,7 @@ namespace FastLoader
     {
         private static void Postfix()
         {
+            FastLoaderDebug.LogPatchStateAfterMainMenu();
             FastLoaderCommandBridge.ProcessCommandLineBuildRequests();
             FastLoaderModUpdateChecker.StartAfterMainMenu();
         }
@@ -316,7 +317,10 @@ namespace FastLoader
                 catch (Exception ex)
                 {
                     FastLoaderRuntime.ActivateVanillaFallback(FastLoaderCacheKind.Texture, modDescription + " cached texture reload failed: " + ex.GetType().Name);
-                    Log.Warning("[FastLoader] Texture cache reload failed. Falling back to vanilla content reload for " + modDescription + ".\n" + ex);
+                    Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                        "TextureCache.CachedReload",
+                        FastLoaderDebug.DescribeMod(__instance),
+                        ex));
                     return true;
                 }
             }
@@ -359,7 +363,7 @@ namespace FastLoader
             {
                 using (FastLoaderProfiler.Scope("FastLoader.TextureCache.InjectRawTextures | " + modDescription))
                 {
-                    LoadRawCachedTexturesIntoHolder(textures, cachedEntries, hotReload);
+                    LoadRawCachedTexturesIntoHolder(mod, textures, cachedEntries, hotReload);
                 }
             }
             finally
@@ -404,29 +408,36 @@ namespace FastLoader
             }
         }
 
-        private static void LoadRawCachedTexturesIntoHolder(ModContentHolder<Texture2D> holder, List<RawTextureEntry> entries, bool hotReload)
+        private static void LoadRawCachedTexturesIntoHolder(ModContentPack mod, ModContentHolder<Texture2D> holder, List<RawTextureEntry> entries, bool hotReload)
         {
             for (int i = 0; i < entries.Count; i++)
             {
                 RawTextureEntry entry = entries[i];
-                if (holder.contentList.ContainsKey(entry.InternalPath))
+                try
                 {
-                    if (!hotReload)
+                    if (holder.contentList.ContainsKey(entry.InternalPath))
                     {
-                        Log.Warning("[FastLoader] Duplicate texture path from raw cache: " + entry.InternalPath);
+                        if (!hotReload)
+                        {
+                            Log.Warning("[FastLoader] Duplicate texture path from raw cache. " + FastLoaderDebug.DescribeRawTextureEntry(mod, entry));
+                        }
+                        continue;
                     }
-                    continue;
+
+                    Texture2D texture = new Texture2D(entry.Width, entry.Height, (TextureFormat)entry.TextureFormat, entry.MipmapCount > 1);
+                    texture.LoadRawTextureData(entry.RawData);
+                    texture.name = entry.Name;
+                    texture.filterMode = (FilterMode)entry.FilterMode;
+                    texture.anisoLevel = entry.AnisoLevel;
+                    texture.Apply(false, true);
+
+                    holder.contentList.Add(entry.InternalPath, texture);
+                    AddToTrie(holder, entry.InternalPath);
                 }
-
-                Texture2D texture = new Texture2D(entry.Width, entry.Height, (TextureFormat)entry.TextureFormat, entry.MipmapCount > 1);
-                texture.LoadRawTextureData(entry.RawData);
-                texture.name = entry.Name;
-                texture.filterMode = (FilterMode)entry.FilterMode;
-                texture.anisoLevel = entry.AnisoLevel;
-                texture.Apply(false, true);
-
-                holder.contentList.Add(entry.InternalPath, texture);
-                AddToTrie(holder, entry.InternalPath);
+                catch (Exception ex)
+                {
+                    throw new InvalidOperationException("Failed to restore raw cached texture: " + FastLoaderDebug.DescribeRawTextureEntry(mod, entry), ex);
+                }
             }
         }
 

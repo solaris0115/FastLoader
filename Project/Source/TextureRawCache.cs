@@ -166,7 +166,13 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Failed to save texture raw cache for " + packageId + ".\n" + ex);
+                Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                    "TextureRawCache.Write",
+                    FastLoaderDebug.DescribeMod(mod) +
+                    ", cachePath=" + cachePath +
+                    ", entries=" + entries.Count +
+                    ", rawBytes=" + CountRawBytes(entries),
+                    ex));
                 throw new IOException("Failed to save texture raw cache for " + packageId + ": " + ex.GetBaseException().Message, ex);
             }
         }
@@ -192,7 +198,14 @@ namespace FastLoader
             }
             catch (Exception ex)
             {
-                Log.Warning("[FastLoader] Failed to save texture raw cache for group " + group.GroupName + ".\n" + ex);
+                Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                    "TextureRawCache.WriteGroup",
+                    "groupName=" + group.GroupName +
+                    ", groupId=" + group.GroupId +
+                    ", cachePath=" + cachePath +
+                    ", entries=" + entries.Count +
+                    ", rawBytes=" + CountRawBytes(entries),
+                    ex));
                 throw new IOException("Failed to save texture raw cache for group " + group.GroupName + ": " + ex.GetBaseException().Message, ex);
             }
         }
@@ -605,7 +618,10 @@ namespace FastLoader
                     }
                     catch (Exception ex)
                     {
-                        Log.Warning("[FastLoader] Rebuild: failed to read texture '" + kvp.Key + "': " + ex.Message);
+                        Log.Warning(FastLoaderDebug.FormatExceptionContext(
+                            "TextureCache.Build.ReadTexture",
+                            FastLoaderDebug.DescribeTexture(currentMod != null ? currentMod.Mod : null, kvp.Key, tex),
+                            ex));
                     }
                 }
             }
@@ -798,6 +814,26 @@ namespace FastLoader
 
             long pixels = (long)Math.Max(1, texture.width) * Math.Max(1, texture.height);
             return Math.Max(1024L, pixels + 512L);
+        }
+
+        private static long CountRawBytes(List<RawTextureEntry> entries)
+        {
+            if (entries == null)
+            {
+                return 0L;
+            }
+
+            long total = 0L;
+            for (int i = 0; i < entries.Count; i++)
+            {
+                RawTextureEntry entry = entries[i];
+                if (entry != null && entry.RawData != null)
+                {
+                    total += entry.RawData.Length;
+                }
+            }
+
+            return total;
         }
 
         private static long SafeAdd(long left, long right)

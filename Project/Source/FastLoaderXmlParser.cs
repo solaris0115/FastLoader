@@ -50,24 +50,31 @@ namespace FastLoader
                         continue;
                     }
 
-                    Def def = useNewDeserializer
-                        ? DirectXmlToObjectNew.DefFromNodeNew(xmlNode, null)
-                        : DirectXmlLoader.DefFromNode(xmlNode, null);
-
-                    if (def == null)
-                    {
-                        continue;
-                    }
-
                     CacheEntry entry = entries[i];
-                    ModContentPack mod = FastLoaderRuntime.FindMod(entry.PackageId);
-                    if (mod != null)
+                    try
                     {
-                        mod.AddDef(def, string.IsNullOrEmpty(entry.SourceName) ? "Unknown" : entry.SourceName);
+                        Def def = useNewDeserializer
+                            ? DirectXmlToObjectNew.DefFromNodeNew(xmlNode, null)
+                            : DirectXmlLoader.DefFromNode(xmlNode, null);
+
+                        if (def == null)
+                        {
+                            continue;
+                        }
+
+                        ModContentPack mod = FastLoaderRuntime.FindMod(entry.PackageId);
+                        if (mod != null)
+                        {
+                            mod.AddDef(def, string.IsNullOrEmpty(entry.SourceName) ? "Unknown" : entry.SourceName);
+                        }
+                        else
+                        {
+                            LoadedModManager.PatchedDefsForReading.Add(def);
+                        }
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        LoadedModManager.PatchedDefsForReading.Add(def);
+                        throw new InvalidOperationException("Cached XML parse failed at " + DescribeCachedNode(xmlNode, entry), ex);
                     }
 
                     parsedDefCount++;
@@ -75,6 +82,32 @@ namespace FastLoader
             }
 
             return parsedDefCount;
+        }
+
+        private static string DescribeCachedNode(XmlNode node, CacheEntry entry)
+        {
+            string nodeName = node != null ? node.Name : "(null node)";
+            string defName = ChildText(node, "defName");
+            if (string.IsNullOrEmpty(defName))
+            {
+                defName = ChildText(node, "Name");
+            }
+
+            return "node=" + nodeName +
+                ", defName=" + (string.IsNullOrEmpty(defName) ? "(empty)" : defName) +
+                ", packageId=" + (entry != null ? entry.PackageId ?? string.Empty : string.Empty) +
+                ", sourceName=" + (entry != null ? entry.SourceName ?? string.Empty : string.Empty);
+        }
+
+        private static string ChildText(XmlNode node, string name)
+        {
+            if (node == null)
+            {
+                return string.Empty;
+            }
+
+            XmlNode child = node.SelectSingleNode(name);
+            return child != null ? child.InnerText : string.Empty;
         }
 
         private static bool ShouldLoad(XmlNode node)
