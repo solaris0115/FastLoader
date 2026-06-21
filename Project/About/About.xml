@@ -2,6 +2,7 @@
 <ModMetaData>
   <name>FastLoader</name>
   <author>Solaris</author>
+  <modVersion>1.0.1</modVersion>
   <supportedVersions>
     <li>1.6</li>
   </supportedVersions>
@@ -17,6 +18,10 @@
     <li>brrainz.harmony</li>
   </loadAfter>
   <description>
-Optimizes RimWorld XML loading and Texture load sequence.
+Optimizes RimWorld startup loading by caching repeated XML, language, texture, and atlas work.
+
+Version 1.0.1:
+- Separated cache feature toggles for XML/Language, Texture, and Atlas.
+- Added independent build and remove controls for each cache category.
   </description>
 </ModMetaData>

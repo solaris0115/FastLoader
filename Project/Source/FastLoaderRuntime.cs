@@ -36,7 +36,7 @@ namespace FastLoader
     internal static class FastLoaderRuntime
     {
         public const string CacheFormatVersion = "1";
-        public const string FastLoaderVersion = "0.2.3";
+        public const string FastLoaderVersion = "1.0.1";
 
         private static CacheData loadedCache;
         private static CacheData lastResolvedXmlSnapshot;
