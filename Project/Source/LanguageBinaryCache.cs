@@ -345,9 +345,13 @@ namespace FastLoader
 
         private static bool IsBuildEnabled()
         {
+            if (FastLoaderRuntime.IsManualBuildActive)
+            {
+                return true;
+            }
+
             return !FastLoaderRuntime.IsCacheFallbackActive &&
-                (FastLoaderRuntime.IsManualBuildActive ||
-                 FastLoaderRuntime.ShouldUseXmlCache);
+                FastLoaderRuntime.ShouldUseXmlCache;
         }
 
         private static string ComputeLanguageHash(LoadedLanguage language)

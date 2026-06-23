@@ -279,6 +279,7 @@ namespace FastLoader
 
             string activeLanguage = FastLoaderCacheState.GetCurrentActiveLanguage();
             if (!string.IsNullOrEmpty(state.ActiveLanguage) &&
+                !string.IsNullOrEmpty(activeLanguage) &&
                 ShouldUseXmlCache &&
                 !string.Equals(state.ActiveLanguage, activeLanguage ?? string.Empty, StringComparison.Ordinal))
             {
@@ -287,6 +288,7 @@ namespace FastLoader
 
             string defaultLanguage = FastLoaderCacheState.GetCurrentDefaultLanguage();
             if (!string.IsNullOrEmpty(state.DefaultLanguage) &&
+                !string.IsNullOrEmpty(defaultLanguage) &&
                 ShouldUseXmlCache &&
                 !string.Equals(state.DefaultLanguage, defaultLanguage ?? string.Empty, StringComparison.Ordinal))
             {
