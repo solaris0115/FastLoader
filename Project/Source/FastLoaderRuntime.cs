@@ -45,8 +45,10 @@ namespace FastLoader
         private static int parsedDefCount;
         private static DateTime loadStartedUtc;
         private static bool cacheFallbackActive;
+        private static bool lastLoadSkippedPatchApplication;
         private static int manualBuildDepth;
         private static readonly CacheEntry[] EmptyEntries = new CacheEntry[0];
+        private static readonly Dictionary<string, bool> PatchContentLookup = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         private static readonly FieldInfo XmlInheritanceResolvedNodesField = typeof(XmlInheritance).GetField("resolvedNodes", BindingFlags.NonPublic | BindingFlags.Static);
 
         public static ModContentPack ModContent;
@@ -171,6 +173,8 @@ namespace FastLoader
             inputHash = null;
             statusReason = null;
             parsedDefCount = 0;
+            lastLoadSkippedPatchApplication = false;
+            PatchContentLookup.Clear();
 
             TryDeleteFile(ManifestPath);
             TryDeleteFile(ResolvedDefsPath);
@@ -195,6 +199,8 @@ namespace FastLoader
             statusReason = null;
             parsedDefCount = 0;
             cacheFallbackActive = false;
+            lastLoadSkippedPatchApplication = false;
+            PatchContentLookup.Clear();
             loadStartedUtc = DateTime.UtcNow;
             FastProfile.Begin();
 
@@ -439,6 +445,7 @@ namespace FastLoader
             LastInputHash = inputHash;
             LastParsedDefCount = parsedDefCount;
             LastLoadElapsedMs = elapsed.TotalMilliseconds;
+            lastLoadSkippedPatchApplication = Mode == FastLoaderMode.CacheHit;
             Log.Message("[FastLoader] XML cache " + status + " in " + FormatSeconds(elapsed) + ". Reason: " + (statusReason ?? string.Empty) + ". Parsed defs: " + parsedDefCount);
 
             Mode = FastLoaderMode.None;
@@ -446,6 +453,80 @@ namespace FastLoader
             inputHash = null;
             statusReason = null;
             parsedDefCount = 0;
+        }
+
+        public static bool ShouldTreatAsLoadedByCachedPatches(ModContentPack mod)
+        {
+            if (mod == null || (Mode != FastLoaderMode.CacheHit && !lastLoadSkippedPatchApplication))
+            {
+                return false;
+            }
+
+            string key = mod.PackageId ?? mod.PackageIdPlayerFacing ?? mod.RootDir;
+            if (string.IsNullOrEmpty(key))
+            {
+                key = mod.GetHashCode().ToString();
+            }
+
+            bool hasPatchContent;
+            if (PatchContentLookup.TryGetValue(key, out hasPatchContent))
+            {
+                return hasPatchContent;
+            }
+
+            hasPatchContent = HasPatchFilesInActiveLoadFolders(mod);
+            PatchContentLookup[key] = hasPatchContent;
+            return hasPatchContent;
+        }
+
+        private static bool HasPatchFilesInActiveLoadFolders(ModContentPack mod)
+        {
+            if (mod.foldersToLoadDescendingOrder == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < mod.foldersToLoadDescendingOrder.Count; i++)
+            {
+                string folder = mod.foldersToLoadDescendingOrder[i];
+                if (string.IsNullOrEmpty(folder))
+                {
+                    continue;
+                }
+
+                string patchDir = Path.Combine(folder, "Patches");
+                if (!Directory.Exists(patchDir))
+                {
+                    continue;
+                }
+
+                try
+                {
+                    IEnumerator<string> enumerator = Directory.EnumerateFiles(patchDir, "*.xml", SearchOption.AllDirectories).GetEnumerator();
+                    try
+                    {
+                        if (enumerator.MoveNext())
+                        {
+                            return true;
+                        }
+                    }
+                    finally
+                    {
+                        if (enumerator != null)
+                        {
+                            enumerator.Dispose();
+                        }
+                    }
+                }
+                catch (IOException)
+                {
+                }
+                catch (UnauthorizedAccessException)
+                {
+                }
+            }
+
+            return false;
         }
 
         private static string FormatSeconds(TimeSpan elapsed)

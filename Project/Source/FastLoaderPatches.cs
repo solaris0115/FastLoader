@@ -495,6 +495,18 @@ namespace FastLoader
         }
     }
 
+    [HarmonyPatch(typeof(ModContentPack), nameof(ModContentPack.AnyContentLoaded))]
+    internal static class Patch_ModContentPack_AnyContentLoaded
+    {
+        private static void Postfix(ModContentPack __instance, ref bool __result)
+        {
+            if (!__result && FastLoaderRuntime.ShouldTreatAsLoadedByCachedPatches(__instance))
+            {
+                __result = true;
+            }
+        }
+    }
+
     [HarmonyPatch(typeof(LoadedModManager), nameof(LoadedModManager.ClearDestroy))]
     internal static class Patch_LoadedModManager_ClearDestroy
     {
