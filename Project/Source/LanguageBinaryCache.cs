@@ -29,6 +29,7 @@ namespace FastLoader
         private const int MaxStringFiles = 200000;
         private const int MaxStringLinesPerFile = 1000000;
         private const string DefInjectedCacheExtension = ".finj";
+        private static readonly bool UseDefInjectedBinaryCache = false;
         private static readonly FieldInfo DataIsLoadedField = AccessTools.Field(typeof(LoadedLanguage), "dataIsLoaded");
         private static readonly FieldInfo TmpAlreadyLoadedFilesField = AccessTools.Field(typeof(LoadedLanguage), "tmpAlreadyLoadedFiles");
 
@@ -140,9 +141,12 @@ namespace FastLoader
                     LanguageCacheFile.Write(cachePath, hash, language);
                 }
 
-                using (FastLoaderProfiler.Scope("FastLoader.DefInjectedCache.Write | " + Describe(language)))
+                if (UseDefInjectedBinaryCache)
                 {
-                    DefInjectedBinaryCache.Write(GetDefInjectedCachePath(language), language);
+                    using (FastLoaderProfiler.Scope("FastLoader.DefInjectedCache.Write | " + Describe(language)))
+                    {
+                        DefInjectedBinaryCache.Write(GetDefInjectedCachePath(language), language);
+                    }
                 }
             }
             catch (Exception ex)
@@ -197,13 +201,20 @@ namespace FastLoader
             int defInjectedPackageCount = 0;
             int defInjectedInjectionCount = 0;
             bool defInjectedCacheLoaded;
-            using (FastLoaderProfiler.Scope("FastLoader.DefInjectedCache.TryRead | " + Describe(language)))
+            if (UseDefInjectedBinaryCache)
             {
-                defInjectedCacheLoaded = DefInjectedBinaryCache.TryRead(
-                    GetDefInjectedCachePath(language),
-                    language,
-                    out defInjectedPackageCount,
-                    out defInjectedInjectionCount);
+                using (FastLoaderProfiler.Scope("FastLoader.DefInjectedCache.TryRead | " + Describe(language)))
+                {
+                    defInjectedCacheLoaded = DefInjectedBinaryCache.TryRead(
+                        GetDefInjectedCachePath(language),
+                        language,
+                        out defInjectedPackageCount,
+                        out defInjectedInjectionCount);
+                }
+            }
+            else
+            {
+                defInjectedCacheLoaded = false;
             }
 
             DeepProfiler.Start("Loading language data from FastLoader cache: " + language.folderName);

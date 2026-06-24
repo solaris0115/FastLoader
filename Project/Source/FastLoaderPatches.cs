@@ -44,7 +44,7 @@ namespace FastLoader
         private static bool Prefix(LoadedLanguage __instance, ref FastLoaderProfileScope __state)
         {
             __state = FastLoaderProfiler.Scope("FastLoader.DefInjected.Before.Total");
-            return !FastDefInjectedApplier.TryInjectBefore(__instance);
+            return true;
         }
 
         private static void Postfix(FastLoaderProfileScope __state)
@@ -62,7 +62,7 @@ namespace FastLoader
         private static bool Prefix(LoadedLanguage __instance, ref FastLoaderProfileScope __state)
         {
             __state = FastLoaderProfiler.Scope("FastLoader.DefInjected.After.Total");
-            return !FastDefInjectedApplier.TryInjectAfter(__instance);
+            return true;
         }
 
         private static void Postfix(FastLoaderProfileScope __state)
